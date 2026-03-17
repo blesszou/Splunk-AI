@@ -1,0 +1,77 @@
+[app/ui]
+version = 10.2.0
+modtime = 1773571256.360429000
+
+[app/launcher]
+version = 10.2.0
+modtime = 1773571256.364419000
+
+[views/ai_case_1]
+owner = admin
+version = 10.2.0
+modtime = 1773496354.967866000
+
+[views/ai_case_2]
+owner = admin
+version = 10.2.0
+modtime = 1773496429.468567000
+
+[nav/default]
+version = 9.4.1
+modtime = 1773675686.101499000
+
+[views/ai_case_3]
+owner = admin
+version = 10.2.0
+modtime = 1773496866.761175000
+
+[lookups/ai_uc1_es_notables.csv]
+access = read : [ * ], write : [ admin ]
+export = none
+owner = admin
+version = 10.2.0
+modtime = 1773490045.419602000
+
+[lookups/ai_uc1_ioc_prompt_map.csv]
+access = read : [ * ], write : [ admin ]
+export = none
+owner = admin
+version = 10.2.0
+modtime = 1773490232.727417000
+
+[lookups/ai_uc2_risk_notables.csv]
+access = read : [ * ], write : [ admin ]
+export = none
+owner = admin
+version = 10.2.0
+modtime = 1773490397.578434000
+
+[lookups/ai_uc3_notables.csv]
+access = read : [ * ], write : [ admin ]
+export = none
+owner = admin
+version = 10.2.0
+modtime = 1773490520.601848000
+
+[views/landing_page]
+owner = admin
+version = 9.4.1
+modtime = 1773650459.910356000
+
+[views/ai_case_4]
+owner = admin
+version = 10.2.0
+modtime = 1773552968.259612000
+
+[app/install/install_source_checksum]
+version = 9.4.1
+modtime = 1773622875.281597000
+
+[app/package/check_for_updates]
+version = 10.2.0
+modtime = 1773571256.365742000
+
+[views/ai_case_5]
+owner = admin
+version = 9.4.1
+modtime = 1773710964.761064000

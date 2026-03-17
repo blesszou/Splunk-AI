@@ -1,0 +1,286 @@
+<form version="1.1" theme="dark">
+  <label>Vector search and LLM analysis pipeline design</label>
+
+  <init>
+    <set token="execute_spl">| inputlookup ai_uc3_notables.csv | eval event=rule_name."-".description | fields event | airag prompt="Based on historical response records, identify which department or role is primarily responsible for handling this type of security event {event}. Respond in JSON with fields 'responsible_department' and 'reasoning'." provider=ollama model=llama3:latest</set>
+    
+    <set token="display_spl">| inputlookup ai_uc3_notables.csv                                      ``` Load security notable information from Splunk ```
+| eval event=rule_name."-".description                                 ``` Combine rule info and notable description in one field ```
+| fields event                                                         ``` Keep only the relevant event text for AI context ```
+| airag prompt="Based on historical response records..."...            ``` Query vector DB for historical records and generate response ```
+                                                                       ``` Identify responsible department and reasoning in JSON format ```
+    provider=ollama model=llama3:latest</set>
+    
+    <set token="show_original_tab">true</set>
+  </init>
+
+  <fieldset submitButton="false"></fieldset>
+
+  <row>
+    <panel>
+      <html>
+        <style>
+          /* 🚀 0. 强制覆盖 Splunk 原生白底 */
+          .dashboard-body, body, .app-body { background-color: #0f172a !important; color: #cbd5e1 !important; }
+          .dashboard-panel { background-color: #0f172a !important; border: none !important; }
+          
+          /* 🌟 大标题亮白修复 */
+          .dashboard-header h1.dashboard-title, .dashboard-title { 
+              color: #f8fafc !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; font-weight: 800 !important; 
+          }
+          .dashboard-panel .panel-title { color: #f8fafc !important; font-size: 1.25em !important; font-weight: bold !important; margin-bottom: 10px !important; }
+          
+          /* 🏆 终极表格修复基础属性 */
+          .table-chrome { background-color: #0f172a !important; border: 1px solid #334155 !important; border-radius: 8px !important; }
+          
+          /* 表头：永远不换行，保护排序图标 */
+          .table-chrome th { 
+              white-space: nowrap !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+              background-color: #1e293b !important; color: #f8fafc !important; 
+              border-bottom: 2px solid #475569 !important; font-weight: bold !important; 
+          }
+          
+          /* 单元格通用颜色 */
+          .table-chrome td { 
+              background-color: transparent !important; color: #cbd5e1 !important; 
+              border-bottom: 1px solid #1e293b !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+          }
+          
+          /* 斑马纹与悬停 */
+          .table-chrome tr { background-color: #0f172a !important; }
+          .table-chrome tr:nth-child(even) { background-color: #162032 !important; }
+          .table-chrome tr:hover, .table-chrome tr:hover td { background-color: #2d3748 !important; color: #ffffff !important; }
+
+          /* 🌟🌟 核心逻辑：区分表格滑动行为 🌟🌟 */
+          /* Original Data 表格：单行显示，左右滑动 */
+          #original_data_panel .table-chrome td {
+              white-space: nowrap !important;
+          }
+          /* AI Results 表格：长文本自动换行，保留 AI 格式，顶端对齐 */
+          #ai_highlight_panel .table-chrome td {
+              white-space: pre-wrap !important; 
+              word-wrap: break-word !important;
+              min-width: 200px; 
+              vertical-align: top !important; 
+              padding-top: 15px !important;   
+              padding-bottom: 15px !important;
+          }
+
+          /* 1. 现代卡片与字体美化 */
+          .modern-card {
+              background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px;
+              box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -1px rgba(0,0,0,0.2);
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .modern-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border-color: #475569; }
+          
+          .pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.85em; font-weight: 600; margin-right: 5px; }
+          .pill-rag    { background: rgba(219, 39, 119, 0.2); color: #f472b6; border: 1px solid #db2777; }
+          .pill-vector { background: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid #059669; }
+          .pill-orange { background: rgba(234, 88, 12, 0.2); color: #fb923c; border: 1px solid #f97316; }
+
+          .modern-details { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+          .modern-summary { padding: 12px 18px; background: #0f172a; font-size: 1.1em; font-weight: 600; color: #f1f5f9; cursor: pointer; border-bottom: 1px solid transparent; }
+          .modern-details[open] .modern-summary { border-bottom: 1px solid #334155; background: #1e293b; }
+
+          .ide-block {
+              background: #0f172a; color: #e2e8f0; padding: 18px; border-radius: 6px;
+              font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.9em; line-height: 1.6; 
+              overflow-x: auto; white-space: pre-wrap !important; word-wrap: break-word !important;
+              border: 1px solid #000000; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+          }
+
+          /* 2. 控制栏布局 */
+          #control_panel .fieldset { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; padding: 5px 0 15px 0 !important; border-bottom: 2px solid #334155 !important; }
+          #control_panel .input { margin-bottom: 0 !important; padding-bottom: 0 !important; }
+          
+          #tab_switcher .splunk-choice-input { display: flex !important; flex-direction: row !important; }
+          #tab_switcher .btn { border: 1px solid #475569 !important; padding: 8px 16px !important; background: #1e293b !important; border-radius: 6px !important; margin-right: 5px !important; color: #cbd5e1 !important; background-image: none !important; box-shadow: none !important; text-shadow: none !important; transition: all 0.2s ease !important; }
+          #tab_switcher .btn:hover { background-color: #334155 !important; color: #f8fafc !important; }
+          #tab_switcher .btn.active { background: #2563eb !important; color: #fff !important; border-color: #1d4ed8 !important; font-weight: bold !important; }
+
+          /* 3. 执行按钮 */
+          html body div#control_panel div#execute_btn .splunk-choice-input { display: flex !important; }
+          html body div#control_panel div#execute_btn .splunk-choice-input .btn, html body div#control_panel div#execute_btn .splunk-choice-input button {
+              background: #10b981 !important; background-color: #10b981 !important; color: #ffffff !important; padding: 10px 26px !important; border: 1px solid #059669 !important; border-radius: 6px !important; font-weight: bold !important; font-size: 1.05em !important; box-shadow: 0 4px 10px -1px rgba(16, 185, 129, 0.4) !important;
+          }
+          
+          /* 4. AI 面板高亮特效 (粉紫调匹配 RAG 主题) */
+          #ai_highlight_panel .dashboard-panel { background-color: #1e293b !important; border-top: 5px solid #db2777 !important; border-radius: 8px !important; box-shadow: 0 10px 25px -5px rgba(219, 39, 119, 0.15) !important; margin-top: 10px !important; padding: 15px !important; }
+          #ai_highlight_panel .panel-title { color: #f472b6 !important; }
+        </style>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <div style="display: flex; gap: 20px; align-items: stretch;">
+          <div class="modern-card" style="flex: 8;">
+            <h2 style="margin-top:0; color:#f8fafc;">📝 Description</h2>
+            <p style="color:#94a3b8; font-size:1.05em; line-height:1.6;">To address the current complexity of using DSDL with Vector DB and LLM workflows, we provide another option to customer to have a more implementable solution that relies solely on Splunk native capabilities to achieve vector search + LLM application scenarios.</p>
+            <p style="color:#f1f5f9; font-weight: bold; margin-bottom: 5px;">Sample Scenarios:</p>
+            <ul style="color:#94a3b8; line-height:1.7;">
+              <li>Automated historical similar event supplementation via Playbook.</li>
+              <li>FAQ-based Q&amp;A for security incidents.</li>
+            </ul>
+          </div>
+          <div class="modern-card" style="flex: 2; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            <h2 style="margin-top:0; color:#f8fafc; text-align:center;">🏷️ Category</h2>
+            <div style="display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; margin-top: 10px; width:100%; justify-content:center;">
+              <span class="pill pill-rag">RAG</span>
+              <span class="pill pill-vector">Vector DB</span>
+              <span class="pill pill-orange">LLM</span>
+            </div>
+          </div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">⚙️ Prerequisites &amp; Sample Env Setup</summary>
+          <div style="display:flex; padding: 18px; gap:40px;">
+            <div style="flex:1;">
+              <h3 style="margin-top:0; color:#f1f5f9;">General Requirements:</h3>
+              <ul style="line-height: 1.7; color:#94a3b8;">
+                <li>Must have <b>AI Toolkit</b> installed.</li>
+                <li>Must have local <b>Vector DB</b> deployed.</li>
+                <li>Must have custom command to connect to local Vector DB.</li>
+                <li>Must have Python env properly configured for custom command.</li>
+              </ul>
+            </div>
+            <div style="flex:1; border-left: 1px solid #334155; padding-left: 40px;">
+              <h3 style="margin-top:0; color:#f1f5f9;">Sample Env Setup:</h3>
+              <ul style="line-height: 1.6; color:#94a3b8; font-size:0.95em;">
+                <li><b>Install milvus:</b> Standalone or docker unless the service port is 19530</li>
+                <li><b>Create python env:</b> <code>python3.11 -m venv milvus_venv</code></li>
+                <li><b>Import package:</b> <code>pip install pymilvus sentence-transformers</code></li>
+                <li><b>Embedding doc:</b> Run <code>python milvus_embed.py</code></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🚀 How this Use Case Works</summary>
+          <div style="display:flex; padding: 18px; gap:20px;">
+            <div style="flex:1;">
+              <h3 style="margin-top:0; color:#f1f5f9;">The specific steps:</h3>
+              <ol style="line-height: 1.8; color:#94a3b8;">
+                <li><b>Get Security Notable:</b> Retrieve security notable information from Splunk by SPL.</li>
+                <li><b>Custom Enrichment:</b> Use Custom search command to enrich the notable event from internal &amp; private information in Vector DB.</li>
+              </ol>
+              <h3 style="margin-top:15px; color:#f1f5f9;">Splunk Implementation:</h3>
+              <ul style="line-height: 1.7; color:#94a3b8;">
+                <li>Custom search command (<code>airag</code>) to invoke vector database retrieval.</li>
+                <li>Utilize MLTK methods like fit and apply for text preprocessing.</li>
+                <li>Establish a "queryable and searchable" knowledge cascade layer.</li>
+              </ul>
+            </div>
+            <div style="flex:1.2; text-align:right;">
+              <img src="/static/app/splunk_ai/caseflow3.png" alt="RAG Process Flow" style="max-width:100%; border-radius:6px; border:1px solid #334155; opacity: 0.9;"/>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🔍 Show Search (RAG Logic)</summary>
+          <div style="padding: 18px;">
+            <pre class="ide-block">$display_spl$</pre>
+            <div style="margin-top: 15px;">
+              <a href="/app/splunk_ai/search?q=$execute_spl|u$" target="_blank" style="display:inline-block; padding:8px 16px; background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:6px; text-decoration:none; font-weight:600; transition:all 0.2s;">
+                ↗ Open In New Search
+              </a>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel id="control_panel">
+      <input type="link" token="view_mode" id="tab_switcher" searchWhenChanged="true">
+        <label></label>
+        <choice value="original">Original Data</choice>
+        <choice value="ai">AI Results</choice>
+        <default>original</default>
+        <change>
+          <condition value="original">
+            <set token="show_original_tab">true</set>
+            <unset token="show_ai_tab"></unset>
+          </condition>
+          <condition value="ai">
+            <set token="show_ai_tab">true</set>
+            <unset token="show_original_tab"></unset>
+          </condition>
+        </change>
+      </input>
+      <input type="link" token="execute_trigger" id="execute_btn" searchWhenChanged="true">
+        <label></label>
+        <choice value="run">Execute Search</choice>
+        <change>
+          <condition value="run">
+            <set token="execute_ai_search">true</set>
+            <set token="form.view_mode">ai</set>
+            <unset token="form.execute_trigger"></unset>
+          </condition>
+        </change>
+      </input>
+    </panel>
+  </row>
+
+  <row>
+    <panel id="original_data_panel" depends="$show_original_tab$">
+      <title>Original Security Notables (ai_uc3_notables.csv)</title>
+      <table>
+        <search>
+          <query>| inputlookup ai_uc3_notables.csv</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+
+    <panel id="ai_highlight_panel" depends="$show_ai_tab$, $execute_ai_search$">
+      <title>RAG Assisted Analysis &amp; Routing Results</title>
+      <table>
+        <search>
+          <query>$execute_spl$</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+
+    <panel depends="$show_ai_tab$" rejects="$execute_ai_search$">
+      <html>
+        <div style="text-align: center; padding: 60px 20px; color: #94a3b8; border: 2px dashed #475569; border-radius: 8px; background: #0f172a; margin-top:10px;">
+          <h3 style="margin-top:0; color:#f1f5f9; font-size:1.3em;">Ready for RAG Analysis</h3>
+          <p style="font-size:1.05em;">Click the green <b>Execute Search</b> button above to trigger the Vector DB enrichment and LLM routing.</p>
+        </div>
+      </html>
+    </panel>
+  </row>
+</form>

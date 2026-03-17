@@ -1,0 +1,12 @@
+<nav search_view="search">
+  <view name="landing_page" default='true' />
+  <collection label="AI Cases">
+    <view name="ai_case_1"/>
+    <view name="ai_case_2"/>
+    <view name="ai_case_3"/>
+    <view name="ai_case_4"/>
+    <view name="ai_case_5"/>
+  </collection>
+  <view name="search" />
+  <view name="dashboards" />
+</nav>

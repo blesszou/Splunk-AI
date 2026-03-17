@@ -1,0 +1,4 @@
+"cim_model",description,dest,domain,"email_from","file_hash","rule_name",severity,src,time,url,user
+Endpoint,"Endpoint reported suspicious file",,,,7a9e2f6d2baf36a6e12345b12c7f89dce09b32d1,"Suspicious File Detected",high,"10.1.2.5","2025/7/1 10:15",,alice
+Network,"Unusual network traffic","8.8.4.4",,,,"Outbound Connection to Rare IP",medium,"10.1.2.8","2025/7/1 10:22",,bob
+Email,"User clicked link in suspicious email",,"secure-login-office365.net","support@fake365.com",,"Phishing Email Clicked",high,,"2025/7/1 10:31","http://secure-login-office365.net",carol

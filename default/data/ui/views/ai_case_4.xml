@@ -1,0 +1,314 @@
+<form version="1.1" theme="dark">
+  <label>Autonomous Platform Auditing via Splunk MCP</label>
+  
+  <init>
+    <!-- 真实执行的 SPL：在 Prompt 中加入了强制指定 index=_audit 的规则，防止 Agent 在后续步骤中跑偏索引 -->
+    <set token="execute_spl"><![CDATA[| mcpagent prompt="You are an autonomous Splunk platform security auditor. CRITICAL RULES: 1) Explicitly specify 'index=_audit' and append 'earliest=-24h' to EVERY SPL query you generate. 2) NEVER use variables or placeholders (like $users$) in your SPL. You MUST use hardcoded values from previous observations. Step 1: Find the top 3 users with the highest search counts in index=_audit (action=search). Step 2: Read the exact usernames from Step 1's results and run a follow-up search ALWAYS in 'index=_audit' using those explicit names (e.g., index=_audit (user='admin' OR user='system')) to extract their actual SPL queries (search='*'). Step 3: Analyze the retrieved queries for abnormal, destructive, or suspicious behavior and summarize your security findings in English." provider="Ollama" model="qwen3:latest" max_steps=3 
+| table task agent_thought_process executed_spl_queries final_investigation_report]]></set>
+    
+    <!-- 展示用的 SPL，保持完美的排版对齐 -->
+    <set token="display_spl"><![CDATA[| mcpagent prompt="You are an autonomous Splunk auditor. CRITICAL RULES..."          === Launch Agent: LLM autonomously queries index=_audit via MCP ===
+    provider="Ollama" model="qwen3:latest" max_steps=3                               === It decides the next search based on previous results ===
+| table task agent_thought_process executed_spl_queries final_investigation_report   === Display the Agent's reasoning steps and final conclusion ===]]></set>
+    
+    <set token="show_original_tab">true</set>
+  </init>
+  
+  <fieldset submitButton="false"></fieldset>
+  
+  <row>
+    <panel>
+      <html>
+        <style><![CDATA[
+          /* 🚀 0. 强制覆盖 Splunk 原生白底 */
+          .dashboard-body, body, .app-body { background-color: #0f172a !important; color: #cbd5e1 !important; }
+          .dashboard-panel { background-color: #0f172a !important; border: none !important; }
+          
+          /* 🌟 大标题亮白修复 */
+          .dashboard-header h1.dashboard-title, .dashboard-title { 
+              color: #f8fafc !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; font-weight: 800 !important; 
+          }
+          .dashboard-panel .panel-title { color: #f8fafc !important; font-size: 1.25em !important; font-weight: bold !important; margin-bottom: 10px !important; }
+          
+          /* 🏆 终极表格修复基础属性 */
+          .table-chrome { background-color: #0f172a !important; border: 1px solid #334155 !important; border-radius: 8px !important; }
+          
+          /* 表头：永远不换行，保护排序图标 */
+          .table-chrome th { 
+              white-space: nowrap !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+              background-color: #1e293b !important; color: #f8fafc !important; 
+              border-bottom: 2px solid #475569 !important; font-weight: bold !important; 
+          }
+          
+          /* 单元格通用颜色 */
+          .table-chrome td { 
+              background-color: transparent !important; color: #cbd5e1 !important; 
+              border-bottom: 1px solid #1e293b !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+          }
+          
+          /* 斑马纹与悬停 */
+          .table-chrome tr { background-color: #0f172a !important; }
+          .table-chrome tr:nth-child(even) { background-color: #162032 !important; }
+          .table-chrome tr:hover, .table-chrome tr:hover td { background-color: #2d3748 !important; color: #ffffff !important; }
+
+          /* 🌟🌟 核心逻辑：修复问题 1，两个表格都支持自动换行，顶端对齐 🌟🌟 */
+          #original_data_panel .table-chrome td,
+          #ai_highlight_panel .table-chrome td {
+              white-space: pre-wrap !important; 
+              word-wrap: break-word !important;
+              min-width: 250px; 
+              vertical-align: top !important; 
+              padding-top: 15px !important;   
+              padding-bottom: 15px !important;
+          }
+
+          /* 1. 现代卡片与字体美化 */
+          .modern-card {
+              background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px;
+              box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -1px rgba(0,0,0,0.2);
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .modern-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border-color: #475569; }
+          
+          .pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.85em; font-weight: 600; margin-right: 5px; }
+          .pill-cyan   { background: rgba(6, 182, 212, 0.2); color: #22d3ee; border: 1px solid #06b6d4; }
+          .pill-blue   { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+          .pill-purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #a855f7; }
+          .pill-orange { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid #f97316; }
+
+          .modern-details { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+          .modern-summary { padding: 12px 18px; background: #0f172a; font-size: 1.1em; font-weight: 600; color: #f1f5f9; cursor: pointer; border-bottom: 1px solid transparent; }
+          .modern-details[open] .modern-summary { border-bottom: 1px solid #334155; background: #1e293b; }
+
+          .ide-block {
+              background: #0f172a; color: #e2e8f0; padding: 18px; border-radius: 6px;
+              font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.9em; line-height: 1.6; 
+              overflow-x: auto; white-space: pre-wrap !important; word-wrap: break-word !important;
+              border: 1px solid #000000; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+          }
+
+          /* 🌟🌟 核心逻辑：修复问题 2，控制栏布局 🌟🌟 */
+          #control_panel .fieldset { 
+              display: flex !important; 
+              flex-direction: row !important; 
+              flex-wrap: wrap !important; /* 允许在极小屏幕换行，防止撑破 */
+              align-items: center !important; 
+              justify-content: space-between !important; 
+              padding: 15px 0 15px 0 !important; 
+              border-bottom: 2px solid #334155 !important; 
+          }
+          
+          /* 彻底覆盖 Splunk 的宽度限制和隐藏无用的 label */
+          #control_panel .input { 
+              width: auto !important; /* 关键：解除固定宽度 */
+              display: flex !important;
+              align-items: center !important;
+              margin: 0 !important; 
+              padding: 0 !important; 
+          }
+          #control_panel .input > label { display: none !important; }
+          
+          #tab_switcher .splunk-choice-input, #tab_switcher .splunk-choice-input > div { 
+              display: flex !important; 
+              flex-direction: row !important; 
+              align-items: center !important;
+              gap: 10px !important; 
+          }
+          
+          #tab_switcher .btn { 
+              border: 1px solid #475569 !important; padding: 8px 18px !important; 
+              background: #1e293b !important; border-radius: 6px !important; 
+              margin: 0 !important; color: #cbd5e1 !important; 
+              background-image: none !important; box-shadow: none !important; 
+              text-shadow: none !important; transition: all 0.2s ease !important; 
+              white-space: nowrap !important;
+          }
+          #tab_switcher .btn:hover { background-color: #334155 !important; color: #f8fafc !important; }
+          #tab_switcher .btn.active { background: #2563eb !important; color: #fff !important; border-color: #1d4ed8 !important; font-weight: bold !important; }
+
+          /* 执行按钮布局修复 */
+          #execute_btn .splunk-choice-input, #execute_btn .splunk-choice-input > div { 
+              display: flex !important; 
+              align-items: center !important;
+          }
+          #execute_btn .btn, #execute_btn button {
+              background: #10b981 !important; background-color: #10b981 !important; 
+              color: #ffffff !important; padding: 10px 26px !important; 
+              border: 1px solid #059669 !important; border-radius: 6px !important; 
+              font-weight: bold !important; font-size: 1.05em !important; 
+              box-shadow: 0 4px 10px -1px rgba(16, 185, 129, 0.4) !important;
+              margin: 0 !important; white-space: nowrap !important;
+          }
+          
+          /* 4. AI 面板高亮特效 */
+          #ai_highlight_panel .dashboard-panel { background-color: #1e293b !important; border-top: 5px solid #06b6d4 !important; border-radius: 8px !important; box-shadow: 0 10px 25px -5px rgba(6, 182, 212, 0.15) !important; margin-top: 10px !important; padding: 15px !important; }
+          #ai_highlight_panel .panel-title { color: #22d3ee !important; }
+        ]]></style>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <div style="display: flex; gap: 20px; align-items: stretch;">
+          <div class="modern-card" style="flex: 8;">
+            <h2 style="margin-top:0; color:#f8fafc;">📝 Description</h2>
+            <p style="color:#94a3b8; font-size:1.05em; line-height:1.6;">Moving beyond simple text-to-SPL, this showcase demonstrates how to use the <b>Splunk MCP Server</b> to empower an LLM as an autonomous, iterative auditing Agent. Instead of relying on mocked external data, the Agent audits the Splunk platform itself by natively querying the absolute <code>index=_audit</code>.</p>
+            <p style="color:#f1f5f9; font-weight: bold; margin-bottom: 5px;">Key Value Proposition (Bulletproof Demo):</p>
+            <ul style="color:#94a3b8; line-height:1.7;">
+              <li><b>Guaranteed Data Execution:</b> Always queries native <code>index=_audit</code>, ensuring 100% successful execution in any Splunk environment without custom datasets.</li>
+              <li><b>Agentic ReAct Loop:</b> The LLM searches for top users who ran searches, observes the results, and autonomously constructs a <i>second</i> SPL query to inspect their exact search queries.</li>
+              <li><b>Actionable Platform Security:</b> Demonstrates AI performing advanced, multi-step threat hunting and insider threat auditing entirely autonomously.</li>
+            </ul>
+          </div>
+          <div class="modern-card" style="flex: 2; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            <h2 style="margin-top:0; color:#f8fafc; text-align:center;">🏷️ Category</h2>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px; width:100%; text-align:center;">
+              <span class="pill pill-cyan">Autonomous Agent</span>
+              <span class="pill pill-blue">Splunk MCP</span>
+              <span class="pill pill-purple">ReAct Reasoning</span>
+              <span class="pill pill-orange">Platform Audit</span>
+            </div>
+          </div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">⚙️ Prerequisites</summary>
+          <div style="display:flex; padding: 18px;">
+            <div style="flex:1;">
+              <ul style="line-height: 1.7; margin-top:0; color:#94a3b8;">
+                <li>Must have <b>AI Toolkit</b> installed.</li>
+                <li>Must have a <b>Splunk MCP Server</b> deployed and configured within the AI Toolkit.</li>
+                <li>The selected LLM must support <b>Tool Use / Function Calling</b> capabilities (e.g., <code>qwen2.5</code>, <code>qwen3</code>, or <code>llama3.1</code>).</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🚀 How this Use Case Works</summary>
+          <div style="display:flex; padding: 18px; gap:20px;">
+            <div style="flex:1;">
+              <h3 style="margin-top:0; color:#f1f5f9;">The Autonomous Investigation Flow:</h3>
+              <ol style="line-height: 1.8; color:#94a3b8; font-size:1.05em;">
+                <li><b>Trigger:</b> You provide an initial natural language task (e.g., "Audit recent active users and their executed searches") to the Agent.</li>
+                <li><b>Action 1:</b> The LLM calls the Splunk MCP to generate and execute an SPL query against <code>index=_audit</code> to find top searching users.</li>
+                <li><b>Observation:</b> The MCP executes the search and streams the results back into the LLM's context window.</li>
+                <li><b>Action 2 (Reasoning):</b> Realizing it found the users, the LLM dynamically formulates a <i>second</i> SPL query via MCP to check exact SPL commands those specific users executed.</li>
+                <li><b>Synthesis:</b> The Agent compiles the multi-step observations into a final, actionable investigation report showing the user activity chain.</li>
+              </ol>
+            </div>
+            <div style="flex:1; text-align:right; display:flex; align-items:center; justify-content:center;">
+              <img src="/static/app/splunk_ai/caseflow4.png" alt="Process Flow" style="max-width:100%; border-radius:6px; border:1px solid #334155; opacity: 0.9;"/>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🔍 Show Search (Agentic Logic)</summary>
+          <div style="padding: 18px;">
+            <pre class="ide-block">$display_spl$</pre>
+            <div style="margin-top: 15px;">
+              <a href="/app/splunk_ai/search?q=$execute_spl|u$" target="_blank" style="display:inline-block; padding:8px 16px; background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:6px; text-decoration:none; font-weight:600; transition:all 0.2s;">
+                ↗ Open In New Search
+              </a>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel id="control_panel">
+      <input type="link" token="view_mode" id="tab_switcher" searchWhenChanged="true">
+        <label></label>
+        <choice value="original">Initial Task Trigger</choice>
+        <choice value="ai">Agentic Report</choice>
+        <default>original</default>
+        <change>
+          <condition value="original">
+            <set token="show_original_tab">true</set>
+            <unset token="show_ai_tab"></unset>
+          </condition>
+          <condition value="ai">
+            <set token="show_ai_tab">true</set>
+            <unset token="show_original_tab"></unset>
+          </condition>
+        </change>
+      </input>
+
+      <input type="link" token="execute_trigger" id="execute_btn" searchWhenChanged="true">
+        <label></label>
+        <choice value="run">Launch Autonomous Agent</choice>
+        <change>
+          <condition value="run">
+            <set token="execute_ai_search">true</set>
+            <set token="form.view_mode">ai</set>
+            <unset token="form.execute_trigger"></unset>
+          </condition>
+        </change>
+      </input>
+    </panel>
+  </row>
+
+  <row>
+    <!-- 🌟 原数据表格 ID 绑定，现已支持自动换行撑开 -->
+    <panel id="original_data_panel" depends="$show_original_tab$">
+      <title>Initial Autonomous Task Trigger</title>
+      <table>
+        <search>
+          <query>| makeresults count=1 
+| eval task_objective="You are an autonomous Splunk platform security auditor. CRITICAL RULE: You MUST restrict every 'splunk_mcp' search to the last 24 hours by explicitly appending 'earliest=-24h' to your SPL queries. Step 1: Find the top 3 users who ran the most searches in index=_audit (action=search). Step 2: Execute another search to find out the specific SPL queries (search='*') those top users executed."
+| table _time task_objective</query>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+
+    <!-- 🌟 AI 结果表格 ID 绑定，长文本顶端折行对齐 -->
+    <panel id="ai_highlight_panel" depends="$show_ai_tab$, $execute_ai_search$">
+      <title>Agent Observation &amp; Executed Findings</title>
+      <table>
+        <search>
+          <query>$execute_spl$</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+
+    <panel depends="$show_ai_tab$" rejects="$execute_ai_search$">
+      <html>
+        <div style="text-align: center; padding: 60px 20px; color: #94a3b8; border: 2px dashed #475569; border-radius: 8px; background: #0f172a; margin-top:10px;">
+          <h3 style="margin-top:0; color:#f1f5f9; font-size:1.3em;">Ready for Agentic Workflow</h3>
+          <p style="font-size:1.05em;">Click the green <b>Launch Autonomous Agent</b> button above to trigger the iterative Splunk MCP search loop.</p>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+</form>
