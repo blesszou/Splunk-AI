@@ -20,9 +20,6 @@ This application includes five bespoke dashboards, each demonstrating a unique a
 
 * **🏆 Case 5: Talk to Your Logs (AI Chat)**
   The crown jewel of this app: a multi-turn, conversational AI interface that reasons over your *actual* log payload. 
-  * **Zero Hallucinations:** Analyzes 100% accurate, user-validated Splunk logs rather than blindly guessing context.
-  * **KV Store Memory:** Utilizes Splunk's internal KV Store for session-based, continuous conversations.
-  * **Blazing Fast `loadjob` Architecture:** AI requests bypass the Splunk indexing tier entirely by retrieving cached results. This saves massive compute resources and completely prevents Splunk's preview-loop "ghost triggers."
 
 ## ⚙️ Prerequisites
 
@@ -32,7 +29,7 @@ This application includes five bespoke dashboards, each demonstrating a unique a
 4. **Python 3**: Splunk's built-in Python 3 environment.
 
 ## 🚀 Installation & Configuration
-  The app requires several specific local models to demonstrate multi-model collaboration and specific security tasks. Run the following commands in your terminal to pull them via Ollama:
+The app requires several specific local models to demonstrate multi-model collaboration and specific security tasks. Run the following commands in your terminal to pull them via Ollama:
   ollama pull hf.co/DevQuasar/fdtn-ai.Foundation-Sec-8B-Instruct-GGUF:Q4_K_M
   ollama pull aya:8b-23
   ollama pull llama3:latest
