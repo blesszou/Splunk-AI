@@ -1,0 +1,99 @@
+<dashboard version="1.1" theme="dark">
+  <label>Splunk AI Showcase</label>
+  <row>
+    <panel>
+      <html>
+        <style>
+          /* 1. 顶部 Hero Banner 缩小并左对齐，留出视觉空间 */
+          .hero-banner { 
+              background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); 
+              border-radius: 12px; padding: 40px; margin-bottom: 40px; 
+              display: flex; align-items: center; gap: 40px; border: 1px solid #334155; 
+          }
+          .hero-image { width: 350px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+          .hero-text h1 { font-size: 2.8em; color: #f8fafc; margin-bottom: 15px; margin-top: 0; }
+          .hero-text p { color: #94a3b8; font-size: 1.15em; max-width: 650px; line-height: 1.6; }
+          
+          /* 2. 响应式网格核心：Case 增加时自动向下排布，无限扩展 */
+          .case-grid { 
+              display: grid; 
+              /* 核心魔法：卡片最小 280px，空间足够就并排，不够就换行 */
+              grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
+              gap: 25px; 
+          }
+          
+          /* 3. 精美的交互式卡片样式 */
+          .case-card { 
+              background: #1e293b; border: 1px solid #334155; border-radius: 12px; 
+              overflow: hidden; cursor: pointer; transition: all 0.3s ease; 
+              text-decoration: none !important; color: inherit; 
+              display: flex; flex-direction: column; 
+          }
+          .case-card:hover { 
+              transform: translateY(-8px); border-color: #6366f1; 
+              box-shadow: 0 15px 30px rgba(0,0,0,0.4); 
+          }
+          .card-img { 
+              width: 100%; height: 180px; object-fit: cover; 
+              border-bottom: 1px solid #334155; background: #0f172a; 
+          }
+          .card-content { padding: 25px; display: flex; flex-direction: column; flex-grow: 1; }
+          .card-title { font-size: 1.3em; font-weight: bold; color: #f1f5f9; margin-bottom: 12px; margin-top: 0; }
+          .card-desc { font-size: 0.95em; color: #94a3b8; line-height: 1.6; margin: 0; }
+        </style>
+
+        <div class="hero-banner">
+          <img src="/static/app/splunk_ai/hero_main.png" class="hero-image"/>
+          <div class="hero-text">
+            <h1>Showcase Gallery</h1>
+            <p>Welcome to the AI Showcases. Watch and learn from AI examples using real datasets. Click on any card below to inspect the Search Processing Language as well as the underlying code of these examples.</p>
+          </div>
+        </div>
+
+        <div class="case-grid">
+           
+           <a href="/app/splunk_ai/ai_case_1" target="_blank" class="case-card">
+              <img src="/static/app/splunk_ai/case_icons/case1.png" class="card-img"/>
+              <div class="card-content">
+                 <h3 class="card-title">LLM-enhanced analysis</h3>
+                 <p class="card-desc">LLM-enhanced security event analysis and IOC extraction.</p>
+              </div>
+           </a>
+           
+           <a href="/app/splunk_ai/ai_case_2" target="_blank" class="case-card">
+              <img src="/static/app/splunk_ai/case_icons/case2.png" class="card-img"/>
+              <div class="card-content">
+                 <h3 class="card-title">Multi-model collaboration</h3>
+                 <p class="card-desc">Multi-model collaborative workflow for complex threat hunting.</p>
+              </div>
+           </a>
+
+           <a href="/app/splunk_ai/ai_case_3" target="_blank" class="case-card">
+              <img src="/static/app/splunk_ai/case_icons/case3.png" class="card-img"/>
+              <div class="card-content">
+                 <h3 class="card-title">Vector search in LLM</h3>
+                 <p class="card-desc">RAG-based vector search for internal knowledge base lookup.</p>
+              </div>
+           </a>
+
+           <a href="/app/splunk_ai/ai_case_4" target="_blank" class="case-card">
+              <img src="/static/app/splunk_ai/case_icons/case4.png" class="card-img"/>
+              <div class="card-content">
+                 <h3 class="card-title">Autonomous Auditing via Splunk MCP</h3>
+                 <p class="card-desc">Autonomous Platform Auditing via Splunk MCP.</p>
+              </div>
+           </a>
+
+           <a href="/app/splunk_ai/ai_case_5" target="_blank" class="case-card">
+              <img src="/static/app/splunk_ai/case_icons/case5.png" class="card-img"/>
+              <div class="card-content">
+                 <h3 class="card-title">Talk to Your Logs</h3>
+                 <p class="card-desc">Chat with your Data.</p>
+              </div>
+           </a>
+
+           </div>
+      </html>
+    </panel>
+  </row>
+</dashboard>

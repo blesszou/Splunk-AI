@@ -1,0 +1,293 @@
+<form version="1.1" theme="dark">
+  <label>LLM-enhanced Analysis Base on IOC</label>
+
+  <init>
+    <set token="execute_spl">| inputlookup ai_uc1_es_notables.csv
+| ai prompt="From this event record, identify which IOC types are present. Choose from [file_hash, ip, domain, url, email_address]. Output a comma-separated list of detected IOC types. Event details: {rule_name}, {description}, hash={file_hash}, ip={dest}, domain={domain}, url={url}, email={email_from}." provider=Ollama model=hf.co/DevQuasar/fdtn-ai.Foundation-Sec-8B-Instruct-GGUF:Q4_K_M
+| eval ioc_type=trim(ai_result_1)
+| lookup ai_uc1_ioc_prompt_map.csv ioc_type OUTPUT prompt_template
+| eval prompt=prompt_template
+| foreach file_hash src dest domain url email_from user [
+    eval prompt=replace(prompt, "{&lt;&lt;FIELD&gt;&gt;}", coalesce('&lt;&lt;FIELD&gt;&gt;', ""))
+]
+| ai prompt="{prompt}" provider=Ollama model=hf.co/DevQuasar/fdtn-ai.Foundation-Sec-8B-Instruct-GGUF:Q4_K_M
+| table rule_name prompt ai_*</set>
+
+    <set token="display_spl">| inputlookup ai_uc1_es_notables.csv                                                 ``` get Notable details ```
+| ai prompt="From this event record, identify which IOC types..."                    ``` use LLM Model to get IOC type base on notable content ```
+| eval ioc_type=trim(ai_result_1)                                                    ``` field format ```
+| lookup ai_uc1_ioc_prompt_map.csv ioc_type OUTPUT prompt_template                   ``` defined standard indicator types ```
+| eval prompt=prompt_template                                                        ``` format fields in table ```
+| foreach file_hash src dest domain url email_from user [                            ``` enhance IOC content with template ```
+    eval prompt=replace(prompt, "{&lt;&lt;FIELD&gt;&gt;}", coalesce('&lt;&lt;FIELD&gt;&gt;', ""))        ``` filter out empty indicator ```
+]
+| ai prompt="{prompt}" provider=Ollama ...                                           ``` use LLM to get IOC details base on type ```
+| table rule_name prompt ai_* ``` table format ```</set>
+    
+    <set token="show_original_tab">true</set>
+  </init>
+
+  <row>
+    <panel>
+      <html>
+        <style>
+          /* 🚀 0. 强制覆盖 Splunk 原生白底 */
+          .dashboard-body, body, .app-body { background-color: #0f172a !important; color: #cbd5e1 !important; }
+          .dashboard-panel { background-color: #0f172a !important; border: none !important; }
+          
+          /* 🌟 大标题亮白修复 */
+          .dashboard-header h1.dashboard-title, .dashboard-title { 
+              color: #f8fafc !important; 
+              text-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; 
+              font-weight: 800 !important; 
+          }
+          .dashboard-panel .panel-title { color: #f8fafc !important; font-size: 1.25em !important; font-weight: bold !important; margin-bottom: 10px !important; }
+          
+          /* 🏆 终极表格修复：暗黑主题 + 表头防折行 */
+          .table-chrome { background-color: #0f172a !important; border: 1px solid #334155 !important; border-radius: 8px !important; }
+          
+          /* 表头：永远不换行，保护排序图标 */
+          .table-chrome th { 
+              white-space: nowrap !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+              background-color: #1e293b !important; color: #f8fafc !important; 
+              border-bottom: 2px solid #475569 !important; font-weight: bold !important; 
+          }
+          
+          /* 单元格基础属性：默认垂直居中（为单行短文本准备） */
+          .table-chrome td { 
+              background-color: transparent !important; color: #cbd5e1 !important; 
+              border-bottom: 1px solid #1e293b !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+          }
+          
+          /* 斑马纹与悬停 */
+          .table-chrome tr { background-color: #0f172a !important; }
+          .table-chrome tr:nth-child(even) { background-color: #162032 !important; }
+          .table-chrome tr:hover, .table-chrome tr:hover td { background-color: #2d3748 !important; color: #ffffff !important; }
+
+          /* 🌟🌟 核心逻辑：区分表格排版行为 🌟🌟 */
+          
+          /* Original Data 表格：单行显示，左右滑动，垂直居中 */
+          #original_data_panel .table-chrome td {
+              white-space: nowrap !important;
+          }
+          
+          /* AI Results 表格：长文本自动换行，且必须【顶端对齐】 */
+          #ai_highlight_panel .table-chrome td {
+              white-space: pre-wrap !important; 
+              word-wrap: break-word !important;
+              min-width: 250px; /* 保证文字列有足够的阅读宽度 */
+              vertical-align: top !important; /* 核心修复：长文字顶端对齐往下排 */
+              padding-top: 15px !important;   /* 顶端留出一点呼吸空间，不至于贴着线 */
+              padding-bottom: 15px !important;
+          }
+
+          /* 1. 现代卡片与字体美化 */
+          .modern-card {
+              background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px;
+              box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -1px rgba(0,0,0,0.2);
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .modern-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border-color: #475569; }
+          
+          .pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.85em; font-weight: 600; margin-right: 5px; }
+          .pill-purple { background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid #9333ea; }
+          .pill-blue   { background: rgba(2, 132, 199, 0.2); color: #38bdf8; border: 1px solid #0ea5e9; }
+          .pill-orange { background: rgba(234, 88, 12, 0.2); color: #fb923c; border: 1px solid #f97316; }
+
+          .modern-details { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+          .modern-summary { padding: 12px 18px; background: #0f172a; font-size: 1.1em; font-weight: 600; color: #f1f5f9; cursor: pointer; border-bottom: 1px solid transparent; }
+          .modern-details[open] .modern-summary { border-bottom: 1px solid #334155; background: #1e293b; }
+
+          .ide-block {
+              background: #0f172a; color: #e2e8f0; padding: 18px; border-radius: 6px;
+              font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.9em; line-height: 1.6; 
+              overflow-x: auto; white-space: pre-wrap !important; word-wrap: break-word !important;
+              border: 1px solid #000000; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+          }
+
+          /* 2. 控制栏布局 */
+          #control_panel .fieldset { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; padding: 5px 0 15px 0 !important; border-bottom: 2px solid #334155 !important; }
+          #control_panel .input { margin-bottom: 0 !important; padding-bottom: 0 !important; }
+          
+          #tab_switcher .splunk-choice-input { display: flex !important; flex-direction: row !important; }
+          #tab_switcher .btn { border: 1px solid #475569 !important; padding: 8px 16px !important; background: #1e293b !important; border-radius: 6px !important; margin-right: 5px !important; color: #cbd5e1 !important; background-image: none !important; box-shadow: none !important; text-shadow: none !important; transition: all 0.2s ease !important; }
+          #tab_switcher .btn:hover { background-color: #334155 !important; color: #f8fafc !important; }
+          #tab_switcher .btn.active { background: #2563eb !important; color: #fff !important; border-color: #1d4ed8 !important; font-weight: bold !important; }
+
+          /* 3. 执行按钮 */
+          html body div#control_panel div#execute_btn .splunk-choice-input { display: flex !important; }
+          html body div#control_panel div#execute_btn .splunk-choice-input .btn, html body div#control_panel div#execute_btn .splunk-choice-input button {
+              background: #10b981 !important; background-color: #10b981 !important; color: #ffffff !important; padding: 10px 26px !important; border: 1px solid #059669 !important; border-radius: 6px !important; font-weight: bold !important; font-size: 1.05em !important; box-shadow: 0 4px 10px -1px rgba(16, 185, 129, 0.4) !important;
+          }
+          
+          /* 4. AI 面板高亮特效 */
+          #ai_highlight_panel .dashboard-panel { background-color: #1e293b !important; border-top: 5px solid #6366f1 !important; border-radius: 8px !important; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important; margin-top: 10px !important; padding: 15px !important; }
+          #ai_highlight_panel .panel-title { color: #818cf8 !important; }
+        </style>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <div style="display: flex; gap: 20px; align-items: stretch;">
+          <div class="modern-card" style="flex: 8;">
+            <h2 style="margin-top:0; color:#f8fafc;">📝 Description</h2>
+            <p style="color:#94a3b8; font-size:1.05em; line-height:1.6;">Utilizing Large Language Models (LLM) to assist in analyzing common <b>IOCs</b> (Indicators of Compromise, such as domains, IPs, file hashes, URLs, etc.) to enhance traditional rule-based matching and threat intelligence citation methods:</p>
+            <ul style="color:#94a3b8; line-height:1.7;">
+              <li>Categorize scenarios based on the CIM Data Model.</li>
+              <li>Automatically invoke LLM for auxiliary analysis when an IOC is detected.</li>
+              <li>Embed IOCs into the situational context for LLM to assess anomaly severity.</li>
+            </ul>
+          </div>
+          <div class="modern-card" style="flex: 2; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            <h2 style="margin-top:0; color:#f8fafc; text-align:center;">🏷️ Category</h2>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px; width:100%; text-align:center;">
+              <span class="pill pill-purple">LLM Engine</span>
+              <span class="pill pill-blue">IOC Analysis</span>
+              <span class="pill pill-orange">Cyber Security</span>
+            </div>
+          </div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">⚙️ Prerequisites</summary>
+          <div style="display:flex; align-items: flex-start; padding: 18px;">
+            <div style="flex:1;">
+              <ul style="line-height: 1.7; margin-top:0; color:#94a3b8;">
+                <li><b>Splunk AI Toolkit:</b> Must be installed and configured.</li>
+                <li><b>LLM Connection:</b> Ensure the <code>Foundation-Sec-8B-Instruct</code> model is available.</li>
+                <li><b>Data Assets:</b> <code>ai_uc1_es_notables.csv</code> and <code>ai_uc1_ioc_prompt_map.csv</code> lookups must be present.</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🚀 How this Use Case Works</summary>
+          <div style="display:flex; align-items: flex-start; padding: 18px; gap:20px;">
+            <div style="flex:1;">
+              <h3 style="margin-top:0; color:#f1f5f9;">Analysis Steps:</h3>
+              <ol style="line-height: 1.8; color:#94a3b8; font-size:1.05em;">
+                <li><b>Data Retrieval:</b> Extract raw security records.</li>
+                <li><b>Identify IOC:</b> First LLM call to identify specific IOC types.</li>
+                <li><b>Template Matching:</b> Match the appropriate prompt template.</li>
+                <li><b>Context Injection:</b> Dynamically fill fields into the template.</li>
+                <li><b>Deep Analysis:</b> Second LLM call to generate a detailed report.</li>
+              </ol>
+            </div>
+            <div style="flex:1; text-align:right;">
+              <img src="/static/app/splunk_ai/caseflow1.png" alt="Process Flow" style="max-width:100%; border-radius:6px; border:1px solid #334155; opacity: 0.9;" />
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🔍 Show Search (Full AI Logic)</summary>
+          <div style="padding: 18px;">
+            <pre class="ide-block">$display_spl$</pre>
+            <div style="margin-top: 15px;">
+              <a href="/app/splunk_ai/search?q=$execute_spl|u$" target="_blank" style="display:inline-block; padding:8px 16px; background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:6px; text-decoration:none; font-weight:600; transition:all 0.2s;">
+                ↗ Open In New Search
+              </a>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel id="control_panel">
+      <input type="link" token="view_mode" id="tab_switcher" searchWhenChanged="true">
+        <label></label>
+        <choice value="original">Original Data</choice>
+        <choice value="ai">AI Results</choice>
+        <default>original</default>
+        <change>
+          <condition value="original">
+            <set token="show_original_tab">true</set>
+            <unset token="show_ai_tab"></unset>
+          </condition>
+          <condition value="ai">
+            <set token="show_ai_tab">true</set>
+            <unset token="show_original_tab"></unset>
+          </condition>
+        </change>
+      </input>
+
+      <input type="link" token="execute_trigger" id="execute_btn" searchWhenChanged="true">
+        <label></label>
+        <choice value="run">Execute AI Analysis</choice>
+        <change>
+          <condition value="run">
+            <set token="execute_ai_search">true</set>
+            <set token="form.view_mode">ai</set>
+            <unset token="form.execute_trigger"></unset>
+          </condition>
+        </change>
+      </input>
+    </panel>
+  </row>
+
+  <row>
+    <panel id="original_data_panel" depends="$show_original_tab$">
+      <title>Original Security Notables</title>
+      <table>
+        <search>
+          <query>| inputlookup ai_uc1_es_notables.csv</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+
+    <panel id="ai_highlight_panel" depends="$show_ai_tab$, $execute_ai_search$">
+      <title>AI Assisted Analysis Results</title>
+      <table>
+        <search>
+          <query>$execute_spl$</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+
+    <panel depends="$show_ai_tab$" rejects="$execute_ai_search$">
+      <html>
+        <div style="text-align: center; padding: 60px 20px; color: #94a3b8; border: 2px dashed #475569; border-radius: 8px; background: #0f172a; margin-top:10px;">
+          <h3 style="margin-top:0; color:#f1f5f9; font-size:1.3em;">Ready to Synthesize</h3>
+          <p style="font-size:1.05em;">Click the green <b>Execute AI Analysis</b> button above to trigger the dual-stage LLM workflow and view results.</p>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+</form>

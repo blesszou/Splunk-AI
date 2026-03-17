@@ -1,0 +1,11 @@
+description,"rba_id","risk_object","rule_name","threat_objects",timestamp
+"Suspicious email containing fake vendor invoice link",RBA012,"user=kelly.ng","Phishing Email Detected","url=http://vendor-payments.cn;email_from=finance@fakevendor.com","2025-07-28T12:10:00"
+"Malware dropper detected on engineering workstation",RBA013,"host=eng-lab02","Malware Infection Detected","file=dropper.exe;hash=98ab231d","2025-07-28T12:12:00"
+"Multiple failed login attempts to HR database from external IP",RBA014,"db=hr-db","Unauthorized Database Access Attempt","ip=122.10.45.33;user=hr_admin","2025-07-28T12:14:00"
+"AWS access token found in public repository",RBA015,"user=devops.li","Credential Exposure on GitHub","repo=https://github.com/devopsli/cloud-tools","2025-07-28T12:16:00"
+"High outbound data volume from finance workstation to unknown IP",RBA016,"host=fin-01","Data Exfiltration Detected","ip=144.12.98.54;process=data_upload.exe","2025-07-28T12:18:00"
+"Detected encryption behavior on internal shared drive",RBA017,"host=fileshare01","Ransomware Behavior Detected","process=encryptor.exe;file=report.docx","2025-07-28T12:20:00"
+"Spoofed email pretending to be from COO requesting HR data",RBA018,"user=hr.admin","Executive Identity Spoofing","email_from=coo@company-mail.com","2025-07-28T12:22:00"
+"Spike in failed VPN logins from overseas IP range",RBA019,"user=kevin.zhou","Unusual Login Pattern","ip=201.33.99.10;process=vpn_login","2025-07-28T12:24:00"
+"Obfuscated PowerShell command detected on developer workstation",RBA020,"user=ryan.ho","Suspicious Script Execution","command=Invoke-Expression;script=encoded.ps1","2025-07-28T12:26:00"
+"Large confidential file uploaded to personal Dropbox account",RBA021,"user=catherine.wu","Data Loss Prevention Alert","file=client_data.xlsx;url=https://dropbox.com/upload","2025-07-28T12:28:00"

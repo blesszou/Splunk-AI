@@ -1,0 +1,491 @@
+<form version="1.1" theme="dark">
+  <label>Chat with your Data (AI Log Analyst)</label>
+  <description>Step 1: Write SPL to fetch logs. Step 2: Ask AI to analyze them (with KV Store memory).</description>
+
+  <!-- 🌟 终极页面加载清理：防止浏览器刷新时 URL 携带的旧 Token 触发幽灵报错 -->
+  <init>
+    <unset token="form.dummy_ask"></unset>
+    <unset token="form.dummy_clear"></unset>
+    <unset token="ai_trigger"></unset>
+    <unset token="ai_answer"></unset>
+    <unset token="show_ai_results"></unset>
+  </init>
+
+  <!-- Initialize Session ID to ensure a fresh conversation context on page load -->
+  <search id="init_session">
+    <query>| makeresults | eval session_id="data_chat_" . tostring(random())</query>
+    <earliest>-1m</earliest>
+    <latest>now</latest>
+    <done>
+      <set token="session_tok">$result.session_id$</set>
+    </done>
+  </search>
+
+  <!-- Core Backend Processing: Using loadjob to entirely bypass Preview mode -->
+  <!-- 🌟 核心升级：增加 ai_target_sid 依赖，防止在空数据状态下被恶意触发 -->
+  <search id="ai_brain" depends="$ai_trigger$, $ai_target_sid$">
+    <query>
+      | loadjob $ai_target_sid$
+      | eval force_run="$ai_trigger$"
+      | fields - force_run
+      | llmchat session="$ai_session_tok$" prompt="$ai_chat_prompt$"
+      | eval chat_history=coalesce(chat_history, "No previous conversation history found.")
+      <!-- 🌟 终极防弹机制：将所有文本中的美元符号($)替换为安全 HTML 实体(&#36;) -->
+      | eval chat_history=replace(chat_history, "[\$$]", "&amp;#36;")
+      | eval ai_response=replace(ai_response, "[\$$]", "&amp;#36;")
+      | eval safe_prompt=replace(user_prompt, "[\$$]", "&amp;#36;")
+    </query>
+    <!-- loadjob 不需要时间范围，因为它读取的是已完成的任务结果 -->
+    <progress>
+      <set token="loading_ai">true</set>
+      <unset token="ai_answer"></unset>
+      <unset token="chat_history"></unset>
+      <unset token="safe_prompt"></unset>
+    </progress>
+    
+    <!-- 拦截各种失败情况，防止界面消失 -->
+    <error>
+      <unset token="loading_ai"></unset>
+      <set token="ai_answer">❌ Execution Error: Could not load the data job or execute the AI script. (Error message: $err.message$)</set>
+      <set token="analyzed_count">0</set>
+      <set token="chat_history">No history available due to error.</set>
+      <set token="safe_prompt">$ai_chat_prompt$</set>
+    </error>
+    <fail>
+      <unset token="loading_ai"></unset>
+      <set token="ai_answer">❌ Search Failed: The background LLM process could not complete.</set>
+      <set token="analyzed_count">0</set>
+      <set token="chat_history">No history available due to failure.</set>
+      <set token="safe_prompt">$ai_chat_prompt$</set>
+    </fail>
+
+    <done>
+      <condition match="'job.resultCount' == 0">
+        <unset token="loading_ai"></unset>
+        <set token="ai_answer">⚠️ No data found. The initial search yielded 0 results, so there is nothing to analyze.</set>
+        <set token="analyzed_count">0</set>
+        <set token="chat_history">No previous conversation history or no data yielded.</set>
+        <set token="safe_prompt">$ai_chat_prompt$</set>
+      </condition>
+      <condition>
+        <unset token="loading_ai"></unset>
+        <set token="ai_answer">$result.ai_response$</set>
+        <set token="analyzed_count">$result.analyzed_count$</set>
+        <set token="chat_history">$result.chat_history$</set> 
+        <set token="safe_prompt">$result.safe_prompt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- Step 1 Inputs Section: ONLY controls data fetching now -->
+  <fieldset submitButton="true" autoRun="false">
+    <input type="text" token="spl_query" searchWhenChanged="false" id="spl_query_input">
+      <label>1️⃣ Data Search (SPL):</label>
+      <default>search index=_internal log_level=ERROR | head 20</default>
+      <initialValue>search index=_internal log_level=ERROR | head 20</initialValue>
+    </input>
+    <input type="time" token="time_tok">
+      <label>Time Range:</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
+
+  <!-- Global Styles: Aligned with Cases 1-4 Aesthetic -->
+  <row depends="$hidden$">
+    <panel>
+      <html>
+        <style><![CDATA[
+          /* 🚀 0. Base Splunk Dark Theme Overrides (Slate Theme) */
+          .dashboard-body, body, .app-body { background-color: #0f172a !important; color: #cbd5e1 !important; }
+          .dashboard-panel { background-color: #0f172a !important; border: none !important; }
+          
+          /* 🌟 Headers Formatting & Description Visibility Fix */
+          .dashboard-header h1.dashboard-title, .dashboard-title { 
+              color: #f8fafc !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; font-weight: 800 !important; 
+          }
+          .dashboard-header .description { 
+              color: #94a3b8 !important; font-size: 16px !important; font-weight: 500 !important; margin-top: 8px !important; letter-spacing: 0.5px !important;
+          }
+          .dashboard-panel .panel-title { color: #f8fafc !important; font-size: 1.25em !important; font-weight: bold !important; margin-bottom: 10px !important; }
+          
+          /* 🏆 Ultimate Table Fix (Dark Theme) */
+          .table-chrome { background-color: #0f172a !important; border: 1px solid #334155 !important; border-radius: 8px !important; }
+          
+          .table-chrome th { 
+              white-space: nowrap !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+              background-color: #1e293b !important; color: #f8fafc !important; 
+              border-bottom: 2px solid #475569 !important; font-weight: bold !important; 
+          }
+          
+          .table-chrome td { 
+              background-color: transparent !important; color: #cbd5e1 !important; 
+              border-bottom: 1px solid #1e293b !important; 
+              vertical-align: middle !important;
+              padding-left: 15px !important; padding-right: 15px !important;
+          }
+          
+          .table-chrome tr { background-color: #0f172a !important; }
+          .table-chrome tr:nth-child(even) { background-color: #162032 !important; }
+          .table-chrome tr:hover, .table-chrome tr:hover td { background-color: #2d3748 !important; color: #ffffff !important; }
+
+          /* 1. Modern Cards and Formatting */
+          .modern-card {
+              background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px;
+              box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -1px rgba(0,0,0,0.2);
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .modern-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border-color: #475569; }
+          
+          .pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.85em; font-weight: 600; margin-right: 5px; }
+          .pill-cyan   { background: rgba(6, 182, 212, 0.2); color: #22d3ee; border: 1px solid #06b6d4; }
+          .pill-blue   { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+          .pill-purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #a855f7; }
+          .pill-orange { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid #f97316; }
+
+          /* 🌟 Step 1 SPL Input Bar Expansion (IDE Style) */
+          #spl_query_input { width: 800px !important; }
+          #spl_query_input input { 
+              width: 100% !important; 
+              font-family: 'SFMono-Regular', Consolas, monospace !important; 
+              color: #22d3ee !important; 
+              font-size: 14px !important;
+              background-color: #0f172a !important;
+              border: 1px solid #475569 !important;
+          }
+          #spl_query_input input:focus { border-color: #22d3ee !important; box-shadow: 0 0 5px rgba(34, 211, 238, 0.5) !important; outline: none !important; }
+
+          /* 2. Chat UI Customization & Step 2 Input Fieldset tweaks */
+          #ai_panel .fieldset {
+              display: flex !important;
+              flex-direction: row !important;
+              align-items: flex-end !important; /* 父容器底部压平 */
+              gap: 15px !important;
+              padding-bottom: 20px !important;
+              border-bottom: 1px dashed #334155 !important;
+              margin-bottom: 20px !important;
+          }
+          
+          /* 🎯 终极对齐大法：让容器彻底变成普通 block，清除一切可能干扰高度的 flex 包装 */
+          #chat_prompt_input, #ask_ai_btn, #clear_session_btn { 
+              display: block !important; 
+              margin: 0 !important; 
+              padding: 0 !important; 
+          }
+          
+          #chat_prompt_input { flex-grow: 1 !important; width: 100% !important; }
+          #chat_prompt_input label { margin: 0 0 8px 0 !important; padding: 0 !important; display: block !important; }
+          #ask_ai_btn label, #clear_session_btn label { display: none !important; } /* 彻底消灭占位标签 */
+          
+          /* 清除 Splunk 原生组件自带的“隐形包装层”外边距和内边距 */
+          #chat_prompt_input .splunk-textinput, #chat_prompt_input .splunk-textinput-wrapper,
+          #ask_ai_btn .splunk-choice-input, #ask_ai_btn .splunk-choice-input > div,
+          #clear_session_btn .splunk-choice-input, #clear_session_btn .splunk-choice-input > div {
+              margin: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+          }
+
+          /* 统一精准高度与盒模型 */
+          #chat_prompt_input input { 
+              width: 100% !important; 
+              height: 40px !important; /* 强制锁定 40px */
+              line-height: 40px !important; /* 确保文字垂直居中 */
+              box-sizing: border-box !important;
+              border-radius: 6px !important;
+              margin: 0 !important;
+              background-color: #0f172a !important;
+              border: 1px solid #475569 !important;
+              color: #cbd5e1 !important;
+              padding: 0 12px !important;
+              font-size: 14px !important;
+          }
+          #chat_prompt_input input:focus { border-color: #22d3ee !important; box-shadow: 0 0 5px rgba(34, 211, 238, 0.5) !important; outline: none !important; }
+          
+          /* 🌟 新增：Clear History 按钮样式 */
+          #clear_session_btn .btn, #clear_session_btn button {
+              background: #1e293b !important;
+              color: #94a3b8 !important; 
+              height: 40px !important; 
+              box-sizing: border-box !important;
+              padding: 0 15px !important;
+              border: 1px solid #475569 !important; 
+              border-radius: 6px !important; 
+              font-weight: 600 !important; 
+              font-size: 0.95em !important;
+              white-space: nowrap !important; 
+              margin: 0 !important; 
+              transition: all 0.2s ease-in-out !important; 
+              display: inline-flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+          }
+          #clear_session_btn .btn:hover, #clear_session_btn button:hover {
+              background-color: #334155 !important;
+              color: #f8fafc !important;
+              border-color: #64748b !important;
+          }
+
+          /* 🚀 Analyze Data 按钮样式 */
+          #ask_ai_btn .btn, #ask_ai_btn button {
+              background: linear-gradient(135deg, #10b981, #059669) !important; 
+              background-color: #10b981 !important;
+              color: #ffffff !important; 
+              height: 40px !important; /* 绝对高度，与 input 一致 */
+              box-sizing: border-box !important;
+              padding: 0 28px !important;
+              border: none !important; 
+              border-radius: 6px !important; 
+              font-weight: 800 !important; 
+              font-size: 1.05em !important;
+              box-shadow: 0 4px 15px rgba(16, 185, 129, 0.5) !important; 
+              white-space: nowrap !important; 
+              margin: 0 !important; 
+              transition: all 0.2s ease-in-out !important; 
+              text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
+              display: inline-flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+          }
+          #ask_ai_btn .btn:hover, #ask_ai_btn button:hover {
+              transform: translateY(-2px) !important;
+              box-shadow: 0 6px 20px rgba(16, 185, 129, 0.7) !important;
+              background: linear-gradient(135deg, #34d399, #10b981) !important;
+              background-color: #34d399 !important;
+          }
+
+          /* ⚡️ 父容器外层统一接管整体的滚动条 */
+          .chat-container { 
+            display: flex; flex-direction: column; gap: 15px; padding: 20px; 
+            background-color: #0f172a; border-radius: 8px; margin-bottom: 20px; border: 1px solid #334155; 
+            max-height: 800px; 
+            overflow-y: auto;
+          }
+          .chat-container::-webkit-scrollbar { width: 8px; }
+          .chat-container::-webkit-scrollbar-track { background: #0f172a; }
+          .chat-container::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+          .chat-container::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+          .bubble { max-width: 90%; padding: 15px 20px; border-radius: 12px; font-size: 15px; line-height: 1.6; word-wrap: break-word; }
+          .user-bubble { 
+            align-self: flex-end; background-color: #2563eb; color: #f8fafc; border-bottom-right-radius: 2px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2); white-space: pre-wrap !important; word-wrap: break-word !important;
+          }
+          .ai-bubble { 
+            align-self: flex-start; background-color: #1e293b; color: #cbd5e1; border-bottom-left-radius: 2px; border: 1px solid #475569; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); white-space: pre-wrap !important; word-wrap: break-word !important;
+          }
+          /* 突出显示最新结果的边框 */
+          .ai-bubble-latest { border: 1px solid #0ea5e9 !important; box-shadow: 0 0 10px rgba(14, 165, 233, 0.15) !important; }
+          
+          .stats-badge { font-size: 12px; color: #94a3b8; margin-top: 10px; border-top: 1px solid #334155; padding-top: 5px; display: block; }
+
+          /* Animation for loading spinner */
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .loading-spinner { margin: 20px auto; width: 50px; height: 50px; border: 5px solid rgba(255, 255, 255, 0.1); border-radius: 50%; border-left-color: #22d3ee; animation: spin 1s linear infinite; }
+          
+          /* Panel background for the active views */
+          #preview_panel .dashboard-panel, #ai_panel .dashboard-panel {
+              background-color: #1e293b !important; border: 1px solid #334155 !important; border-radius: 8px !important; padding: 10px !important;
+          }
+        ]]></style>
+      </html>
+    </panel>
+  </row>
+
+  <!-- ========================================== -->
+  <!-- 🚀 MAIN RESULTS SECTION                    -->
+  <!-- ========================================== -->
+
+  <!-- Main Horizontal Layout for Data and Chat -->
+  <row>
+    <!-- Left Section: Raw Data Preview Table (Visible always) -->
+    <panel id="preview_panel">
+      <title>🔍 Step 1: Raw Data Preview (Top 50 rows sent to AI)</title>
+      <table>
+        <search id="base_data_search">
+          <query>$spl_query$ | head 50</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+          <progress>
+            <!-- 搜索开始时，清空 SID，防止分析到旧数据 -->
+            <unset token="base_sid"></unset>
+          </progress>
+          <done>
+            <!-- 🌟 核心魔法 1：当左侧搜索 100% 彻底完成后，捕获它的真实 Job SID -->
+            <set token="base_sid">$job.sid$</set>
+          </done>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+
+    <!-- Right Section: Step 2 AI Interface -->
+    <panel id="ai_panel" depends="$spl_query$">
+      <title>🧠 Step 2: AI Analysis (Session: $session_tok$)</title>
+      
+      <input type="text" token="chat_prompt" searchWhenChanged="false" id="chat_prompt_input">
+        <label>Ask AI about the data on the left:</label>
+        <default>Please summarize the main errors and their possible root causes.</default>
+      </input>
+
+      <!-- ✨ 一键清除对话历史并重置 Session 的快捷按钮 -->
+      <input type="link" token="dummy_clear" id="clear_session_btn" searchWhenChanged="true">
+        <label></label>
+        <choice value="clear">🗑️ Clear History</choice>
+        <change>
+          <condition value="clear">
+            <!-- 🌟 终极隔离修复：在清除时，绝对不触碰底层搜索依赖的任何变量，只更新 UI 层的 session_tok -->
+            <eval token="session_tok">"data_chat_" . now()</eval>
+            
+            <!-- 强力清理前端界面残留，同时锁死 UI 安全锁 -->
+            <unset token="ai_answer"></unset>
+            <unset token="chat_history"></unset>
+            <unset token="safe_prompt"></unset>
+            <unset token="show_ai_results"></unset>
+            <unset token="form.dummy_clear"></unset>
+          </condition>
+        </change>
+      </input>
+
+      <!-- 🌟 核心魔法 2：只有当左侧搜索结束拿到了 base_sid 时，按钮才允许被点击触发 -->
+      <input type="link" token="dummy_ask" id="ask_ai_btn" searchWhenChanged="true" depends="$base_sid$">
+        <label></label>
+        <choice value="run">Analyze Data 🚀</choice>
+        <change>
+          <condition value="run">
+            <!-- 拍下当前的变量快照，传递给专门的搜索执行 Token -->
+            <set token="ai_target_sid">$base_sid$</set>
+            <set token="ai_chat_prompt">$chat_prompt$</set>
+            <set token="ai_session_tok">$session_tok$</set>
+            <!-- 强制更新触发器，让搜索必定执行 -->
+            <eval token="ai_trigger">now()</eval>
+            <!-- 🌟 UI 安全锁解锁：明确声明是由真实点击触发的，允许展示气泡 -->
+            <set token="show_ai_results">true</set>
+            <unset token="form.dummy_ask"></unset>
+          </condition>
+        </change>
+      </input>
+
+      <!-- Sub-State: Loading Animation -->
+      <html depends="$loading_ai$">
+        <div style="text-align: center; padding: 50px 20px; background-color: #0f172a; border-radius: 8px; border: 1px dashed #475569; min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          <h3 style="color: #22d3ee; margin-top: 0;">🤖 AI is analyzing your data...</h3>
+          <p style="color: #94a3b8; font-size: 14px;">Feeding cached search results to the LLM. This will bypass the indexing tier and run instantly.</p>
+          <div class="loading-spinner"></div>
+        </div>
+      </html>
+
+      <!-- Sub-State: Chat Results (Flat Layout: Newest on top, History below) -->
+      <!-- 🌟 UI 安全锁：加入 show_ai_results 依赖，防止初次加载或页面刷新时出现幽灵报错 -->
+      <html depends="$ai_answer$, $show_ai_results$">
+        <div class="chat-container">
+          
+          <!-- 1. 置顶显示最新对话 -->
+          <div class="bubble user-bubble">
+            <b>🧑‍💻 You (Latest):</b><br/>
+            $safe_prompt$
+          </div>
+          <div class="bubble ai-bubble ai-bubble-latest">
+            <b>🤖 AI Log Analyst (Latest):</b><br/><br/>
+            $ai_answer$
+            <span class="stats-badge"><i>✓ Successfully loaded cached results and analyzed $analyzed_count$ log events.</i></span>
+          </div>
+          
+          <!-- 2. 分割线 -->
+          <div style="width: 100%; text-align: center; margin: 15px 0; position: relative;">
+            <hr style="border: none; border-top: 1px dashed #475569; position: absolute; width: 100%; top: 50%; z-index: 1; margin: 0;" />
+            <span style="background-color: #0f172a; padding: 0 15px; color: #94a3b8; font-size: 12px; position: relative; z-index: 2;">Previous Chat History</span>
+          </div>
+
+          <!-- 3. 历史记录大号气泡平铺显示 -->
+          <div class="bubble ai-bubble" style="align-self: stretch; max-width: 100%; background-color: #162032; opacity: 0.85;">
+            $chat_history$
+          </div>
+          
+        </div>
+      </html>
+    </panel>
+  </row>
+
+
+  <!-- ========================================== -->
+  <!-- 📖 DOCUMENTATION SECTION MOVED TO BOTTOM   -->
+  <!-- ========================================== -->
+
+  <!-- Showcase Header: Description & Tags -->
+  <row>
+    <panel>
+      <html>
+        <div style="display: flex; gap: 20px; align-items: stretch;">
+          <div class="modern-card" style="flex: 8;">
+            <h2 style="margin-top:0; color:#f8fafc;">📝 Description</h2>
+            <p style="color:#94a3b8; font-size:1.05em; line-height:1.6;">This showcase highlights the powerful <b>Chat with your Data</b> paradigm. It shifts from pure Text-to-SPL to a more resilient workflow: Users execute standard SPL to accurately retrieve raw events, and then use natural language to ask an LLM to summarize, extract insights, or perform root-cause analysis on that exact data payload.</p>
+            <p style="color:#f1f5f9; font-weight: bold; margin-bottom: 5px;">Key Value Proposition:</p>
+            <ul style="color:#94a3b8; line-height:1.7;">
+              <li><b>Zero Data Hallucinations:</b> The LLM reasons over 100% accurate, user-validated Splunk logs instead of struggling to write complex queries.</li>
+              <li><b>Optimized LoadJob Architecture:</b> AI requests bypass the indexing tier entirely by using <code>| loadjob</code> to retrieve cached, completed results from the table, guaranteeing blazing fast response times and zero preview-loop duplications.</li>
+              <li><b>KV Store Memory:</b> Features a session-based memory architecture utilizing Splunk's internal KV Store, enabling multi-turn, continuous conversations.</li>
+            </ul>
+          </div>
+          <div class="modern-card" style="flex: 2; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            <h2 style="margin-top:0; color:#f8fafc; text-align:center;">🏷️ Category</h2>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px; width:100%; text-align:center;">
+              <span class="pill pill-cyan">Data Chat</span>
+              <span class="pill pill-blue">Cached LoadJob</span>
+              <span class="pill pill-purple">Log Summarization</span>
+              <span class="pill pill-orange">AI Analyst</span>
+            </div>
+          </div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <!-- Prerequisites & Workflow Details -->
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="false">
+          <summary class="modern-summary">⚙️ Prerequisites</summary>
+          <div style="display:flex; padding: 18px;">
+            <div style="flex:1;">
+              <ul style="line-height: 1.7; margin-top:0; color:#94a3b8;">
+                <li>The custom <code>llmchat</code> command must be configured with <code>passauth = true</code> in <code>commands.conf</code>.</li>
+                <li>A Splunk KV Store collection named <code>chat_sessions</code> must be defined in <code>collections.conf</code>.</li>
+                <li>A local or remote LLM endpoint (e.g., Ollama running Llama 3 or Qwen) must be accessible.</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="false">
+          <summary class="modern-summary">🚀 How this Use Case Works</summary>
+          <div style="display:flex; padding: 18px; gap:20px;">
+            <div style="flex:1;">
+              <h3 style="margin-top:0; color:#f1f5f9;">The Conversational Pipeline:</h3>
+              <ol style="line-height: 1.8; color:#94a3b8; font-size:1.05em;">
+                <li><b>Data Retrieval:</b> The user writes standard SPL and sets a Time Range. The UI executes it and limits the output (e.g., <code>head 50</code>) to prevent context overflow.</li>
+                <li><b>Stream Interception:</b> When the AI trigger button is clicked, the Dashboard uses <code>| loadjob</code> to pull the cached, finalized results of the left table directly into the LLM pipeline, completely bypassing the indexing tier.</li>
+                <li><b>Memory Retrieval:</b> The script checks the KV Store using the current <code>session_id</code> and loads any previous chat history.</li>
+                <li><b>LLM Invocation:</b> The history, the current prompt, and the raw JSON logs are bundled and sent to the LLM.</li>
+                <li><b>Memory Update:</b> The LLM's response is presented to the user, and the conversation is saved back to the KV Store (stripping the raw logs to save space).</li>
+              </ol>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+</form>

@@ -1,0 +1,12 @@
+description,"rba_id","risk_object","rule_name","threat_objects",timestamp
+"User failed logins across endpoints",RBA001,"user=john.doe","Multiple Login Failures","ip=88.88.88.88;process=login.exe","2025-07-28T12:00:00"
+"SSH access from risky IP 77.88.99.22",RBA002,"src_user=J.Doe","Suspicious SSH Access","ip=77.88.99.22","2025-07-28T12:03:00"
+"Detected reverse shell via HTTP",RBA003,"host=web01","Web Shell Detected","url=http://malicious.site","2025-07-28T12:10:00"
+"Account under password brute force",RBA004,"user=alice.wu","Password Spray Detected","ip=5.6.7.8;process=pspray.py","2025-07-28T11:40:00"
+"User triggered WAF XSS rule",RBA005,"user=Alice","WAF Blocked Request","ip=1.2.3.4","2025-07-28T11:45:00"
+"Outbound to blacklisted domain",RBA006,"ip=88.88.88.88","Abnormal Outbound Connection","domain=c2.example.com","2025-07-28T12:15:00"
+"Outbound connection to known C2 IP",RBA007,"src_ip=77.88.99.22","Known C2 Server Contacted","ip=77.88.99.22","2025-07-28T12:05:00"
+"Sudo command from normal user",RBA008,"user=bob.chen","Privilege Escalation Attempt","process=sudo","2025-07-28T12:30:00"
+"Access to shadow file by non-root",RBA009,"src_user=B.Chen","Sensitive File Access","file=/etc/shadow","2025-07-28T12:35:00"
+"Blocked SQLi on login form",RBA010,"host=db01","SQL Injection Attempt","url=http://badsite.org","2025-07-28T11:58:00"
+"Large data upload to external FTP",RBA011,"host=web01","Outbound File Transfer","ip=10.10.10.10;ftp_server=ftp.leak.org","2025-07-28T12:18:00"
