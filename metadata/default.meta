@@ -56,7 +56,7 @@ modtime = 1773490520.601848000
 [views/landing_page]
 owner = admin
 version = 9.4.1
-modtime = 1773650459.910356000
+modtime = 1773932880.858188000
 
 [views/ai_case_4]
 owner = admin
@@ -75,3 +75,8 @@ modtime = 1773571256.365742000
 owner = admin
 version = 9.4.1
 modtime = 1773710964.761064000
+
+[views/ai_case_6]
+owner = admin
+version = 9.4.1
+modtime = 1773933057.260833000
