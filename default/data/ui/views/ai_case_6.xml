@@ -1,0 +1,294 @@
+<dashboard version="1.1" theme="dark">
+  <label>Dynamic Alert Triage &amp; Autonomous Playbook</label>
+  <!-- 页面初始化：清空所有状态，防止初始加载时发生令牌解析报错 -->
+  <init>
+    <unset token="alert_ip"></unset>
+    <unset token="alert_sev"></unset>
+    <unset token="alert_sig"></unset>
+    <unset token="ai_playbook_prompt"></unset>
+    <unset token="ai_answer"></unset>
+    <unset token="ai_trigger"></unset>
+    <unset token="loading_ai"></unset>
+  </init>
+  <!-- AI 后台核心处理进程：增加对 prompt 的双重依赖，防止空载触发 error -->
+  <search id="ai_soc_brain" depends="$ai_trigger$, $ai_playbook_prompt$">
+    <query>
+      <![CDATA[
+      | makeresults count=1
+      | llmchat prompt="$ai_playbook_prompt$"
+      | fillnull value="⚠️ AI generated an empty response or timed out." ai_response
+      <!-- 基础转义：防止文本中的美元符号破坏 Splunk Token -->
+      | eval ai_response=replace(ai_response, "[\$$]", "&#36;")
+    ]]>
+    </query>
+    <progress>
+      <set token="loading_ai">true</set>
+      <unset token="ai_answer"></unset>
+    </progress>
+    <!-- 核心修复：增加 fail 拦截器，防止后台进程崩溃或超时导致前端无限转圈 -->
+    <fail>
+      <unset token="loading_ai"></unset>
+      <set token="ai_answer">❌ Search Failed: The background LLM process timed out or crashed.</set>
+    </fail>
+    <error>
+      <unset token="loading_ai"></unset>
+      <set token="ai_answer">❌ Search Execution Error: $err.message$</set>
+    </error>
+    <done>
+      <unset token="loading_ai"></unset>
+      <set token="ai_answer">$result.ai_response$</set>
+    </done>
+  </search>
+  <!-- 全局 UI 样式定制 -->
+  <!-- ========================================== -->
+  <!-- 📖 DOCUMENTATION SECTION MOVED TO TOP      -->
+  <!-- ========================================== -->
+  <!-- Showcase Header: Description & Tags -->
+  <!-- Prerequisites -->
+  <!-- How it Works -->
+  <!-- ========================================== -->
+  <!-- 🚀 DATA & OPERATIONS SECTION               -->
+  <!-- ========================================== -->
+  <row depends="$hidden$">
+    <panel>
+      <html>
+        <style>
+          <![CDATA[
+          /* 1. Base Dark Theme Overrides */
+          .dashboard-body, body, .app-body { background-color: #0b1120 !important; color: #cbd5e1 !important; }
+          .dashboard-panel { background-color: transparent !important; border: none !important; }
+          .dashboard-header h1.dashboard-title { color: #f1f5f9 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; font-weight: 800 !important; }
+
+          /* 🌟 修复说明文字与面板标题的颜色和可视度 */
+          .dashboard-header .description { color: #94a3b8 !important; font-size: 16px !important; font-weight: 500 !important; margin-top: 8px !important; letter-spacing: 0.5px !important; }
+          .dashboard-panel .panel-title { color: #f8fafc !important; font-size: 1.25em !important; font-weight: bold !important; margin-bottom: 10px !important; }
+
+          /* 2. Optimized Table (SOC Style) */
+          #alert_table .table-chrome { background-color: #0f172a !important; border: 1px solid #334155 !important; border-radius: 8px !important; box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;}
+          #alert_table th { background-color: #1e293b !important; color: #f1f5f9 !important; border-bottom: 2px solid #475569 !important; font-weight: bold !important; white-space: nowrap !important; }
+          #alert_table td { background-color: transparent !important; color: #94a3b8 !important; border-bottom: 1px solid #1e293b !important; vertical-align: middle !important;}
+          #alert_table tr:hover, #alert_table tr:hover td { background-color: #2d3748 !important; color: #ffffff !important; cursor: pointer;}
+
+          /* 3. Dynamic Playbook Container (Right Panel) */
+          /* 🌟 修复排版失衡：限制最大高度，并添加自定义暗色滚动条 */
+          .playbook-container {
+              display: flex; flex-direction: column; gap: 15px; padding: 25px;
+              background-color: #162032; border-radius: 12px; border: 1px solid #334155;
+              box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
+              animation: fadeIn 0.4s ease-out;
+              max-height: 550px;
+              overflow-y: auto;
+          }
+          .playbook-container::-webkit-scrollbar { width: 8px; }
+          .playbook-container::-webkit-scrollbar-track { background: #162032; border-radius: 4px; }
+          .playbook-container::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+          .playbook-container::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+          @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+          .playbook-section {
+              background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: 8px;
+              border-left: 4px solid #f97316;
+              white-space: pre-wrap !important; word-wrap: break-word !important; color: #e2e8f0; line-height: 1.7; font-size: 15px;
+              font-family: 'SFMono-Regular', Consolas, monospace;
+          }
+
+          /* 4. Action Buttons */
+          .soc-btn {
+              background: linear-gradient(135deg, #2563eb, #1d4ed8) !important; color: #ffffff !important;
+              padding: 8px 20px !important; border: none !important; border-radius: 6px !important;
+              font-weight: bold !important; font-size: 0.9em !important; cursor: pointer !important;
+              transition: all 0.2s ease !important; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4) !important;
+          }
+          .soc-btn:hover { transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(37, 99, 235, 0.6) !important; background: linear-gradient(135deg, #3b82f6, #2563eb) !important;}
+          .soc-btn-green { background: linear-gradient(135deg, #166534, #15803d) !important; box-shadow: 0 4px 10px rgba(22, 101, 52, 0.4) !important; }
+          .soc-btn-green:hover { background: linear-gradient(135deg, #15803d, #166534) !important; }
+
+          /* 5. Loading Spinner */
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .loading-box { text-align: center; padding: 60px; background-color: #0f172a; border-radius: 12px; border: 1px dashed #3b82f6; min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center;}
+          .loading-ring { width: 60px; height: 60px; border: 6px solid rgba(59, 130, 246, 0.1); border-radius: 50%; border-left-color: #3b82f6; animation: spin 0.8s linear infinite; margin-bottom: 25px;}
+
+          /* 6. Modern Cards & Details (Metadata for Cases 1-6) */
+          .modern-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -1px rgba(0,0,0,0.2); transition: transform 0.2s ease, box-shadow 0.2s ease; }
+          .modern-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border-color: #475569; }
+          .pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.85em; font-weight: 600; margin-right: 5px; }
+          .pill-cyan   { background: rgba(6, 182, 212, 0.2); color: #22d3ee; border: 1px solid #06b6d4; }
+          .pill-blue   { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+          .pill-purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #a855f7; }
+          .pill-orange { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid #f97316; }
+          .modern-details { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+          .modern-summary { padding: 12px 18px; background: #0f172a; font-size: 1.1em; font-weight: 600; color: #f1f5f9; cursor: pointer; border-bottom: 1px solid transparent; }
+          .modern-details[open] .modern-summary { border-bottom: 1px solid #334155; background: #1e293b; }
+        ]]>
+        </style>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <html>
+        <div style="display: flex; gap: 20px; align-items: stretch;">
+          <div class="modern-card" style="flex: 8;">
+            <h2 style="margin-top:0; color:#f8fafc;">📝 Description</h2>
+            <p style="color:#94a3b8; font-size:1.05em; line-height:1.6;">Moving beyond basic queries, this showcase demonstrates a <b>Dynamic SOAR Playbook</b>. By clicking on any real-time security alert, the AI Analyst autonomously retrieves the context, reasons about the threat, and generates a complete incident response playbook. This includes ready-to-execute SPL queries for hunting and a step-by-step SOAR automation workflow to contain the threat.</p>
+            <p style="color:#f1f5f9; font-weight: bold; margin-bottom: 5px;">Key Value Proposition:</p>
+            <ul style="color:#94a3b8; line-height:1.7;">
+              <li>
+                <b>One-Click Triage:</b> Transforms raw alerts into actionable intelligence instantly.</li>
+              <li>
+                <b>Autonomous SOAR Orchestration:</b> AI outlines the exact process steps needed to respond (e.g., Block IP, Isolate Host) and drafts conceptual Python code for Splunk SOAR.</li>
+              <li>
+                <b>Actionable Splunk Integration:</b> Provides precise, copy-pasteable SPL queries tailored to the specific attacker behavior.</li>
+            </ul>
+          </div>
+          <div class="modern-card" style="flex: 2; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            <h2 style="margin-top:0; color:#f8fafc; text-align:center;">🏷️ Category</h2>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px; width:100%; text-align:center;">
+              <span class="pill pill-cyan">Dynamic Triage</span>
+              <span class="pill pill-blue">SOAR Workflow</span>
+              <span class="pill pill-purple">Process Steps</span>
+              <span class="pill pill-orange">AI Analyst</span>
+            </div>
+          </div>
+        </div>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">⚙️ Prerequisites</summary>
+          <div style="display:flex; padding: 18px;">
+            <div style="flex:1;">
+              <ul style="line-height: 1.7; margin-top:0; color:#94a3b8;">
+                <li>Must have <b>AI Toolkit</b> installed and the <code>llmchat</code> custom command configured.</li>
+                <li>A running local or remote LLM endpoint (e.g., Ollama running <code>llama3</code> or <code>qwen3</code>) accessible from the Search Head.</li>
+                <li>No external Python libraries are required for this pure Splunk-native interactive dashboard.</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <html>
+        <details class="modern-details" open="true">
+          <summary class="modern-summary">🚀 How this Use Case Works</summary>
+          <div style="display:flex; padding: 18px; gap:20px;">
+            <div style="flex:1;">
+              <h3 style="margin-top:0; color:#f1f5f9;">The Triage Workflow:</h3>
+              <ol style="line-height: 1.8; color:#94a3b8; font-size:1.05em;">
+                <li>
+                  <b>Trigger:</b> The user clicks a row in the Real-time Security Alerts table.</li>
+                <li>
+                  <b>Context Capture:</b> The dashboard's drilldown logic instantly captures the Source IP, Signature, and Severity tokens.</li>
+                <li>
+                  <b>Prompt Assembly:</b> A highly detailed prompt is dynamically assembled, embedding the captured alert context and asking the AI to formulate an automated response strategy.</li>
+                <li>
+                  <b>LLM Execution:</b> The <code>| llmchat</code> command sends the prompt to the AI, which generates investigation queries and step-by-step SOAR process actions.</li>
+                <li>
+                  <b>UI Rendering:</b> The dashboard renders the AI's response in a sleek, scrollable playbook card, ready for the analyst to execute.</li>
+              </ol>
+            </div>
+          </div>
+        </details>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>🚨 Real-time Security Alerts (Click to Triage)</title>
+      <table id="alert_table">
+        <title>Click on any security alert below. The AI Analyst will autonomously triage the threat, generate investigation queries, and draft an incident ticket in real-time.</title>
+        <search id="base_alert_search">
+          <query>
+            <![CDATA[
+            | makeresults count=1
+            | eval _time=now(), sev="Critical", sig="Brute Force Attack (SSH)", src="192.168.1.105", user="root"
+            | append [| makeresults count=1 | eval _time=now()-3600, sev="High", sig="Suspicious PowerShell Execution", src="45.33.22.11", user="system"]
+            | append [| makeresults count=1 | eval _time=now()-7200, sev="Medium", sig="Excessive External Denies (Firewall)", src="10.0.0.50", user="unknown"]
+            | table _time sev sig src user
+            | sort - _time
+          ]]>
+          </query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <!-- Splunk 原生高亮渲染 -->
+        <option name="drilldown">row</option>
+        <format type="color" field="sev">
+          <colorPalette type="map">{"Critical":#991b1b, "High":#c2410c, "Medium":#b45309}</colorPalette>
+        </format>
+        <drilldown>
+          <!-- 捕获点击行的关键信息 -->
+          <set token="alert_ip">$row.src$</set>
+          <set token="alert_sig">$row.sig$</set>
+          <set token="alert_sev">$row.sev$</set>
+          <set token="alert_user">$row.user$</set>
+          <!-- 🌟 升级：向 AI 请求 SOAR 自动化流程步骤，而非 JIRA 工单 -->
+          <set token="ai_playbook_prompt">You are an expert SOC Analyst (Tier 3) specializing in Splunk SOAR automation. Please autonomously triage the following security alert that just triggered. Alert Signature='$row.sig$', Source IP='$row.src$', Severity='$row.sev$', Affected User='$row.user$'.
+
+Please produce a professional Incident Playbook structured with these EXACT sections:
+
+🛑 **Threat Context**: Provide a 2-to-3 sentence explanation of what this attack type is and why it matters in context.
+
+🔍 **Investigation Queries (SPL)**: Provide three (3) distinct, specific Splunk SPL queries I should run to investigate this IP further. Format them cleanly.
+
+⚡ **SOAR Automation Workflow (Process Steps)**: Outline a step-by-step automated response process (e.g., 1. Block IP on Firewall, 2. Force Password Reset, 3. Isolate Host). After listing the steps, provide a very brief conceptual Python snippet showing how the first response action might look in a Splunk SOAR custom playbook.</set>
+          <!-- 触发后台大模型分析 -->
+          <eval token="ai_trigger">now()</eval>
+        </drilldown>
+      </table>
+    </panel>
+    <panel>
+      <title>🧠 Autonomous AI Playbook &amp; SOAR Workflow</title>
+      <!-- 状态 1：空闲提示 (未点击任何告警时显示) -->
+      <!-- 状态 2：加载中动画 -->
+      <!-- 状态 3：AI 结果展示卡片。增加 $alert_ip$ 依赖，确保不会因为幽灵错误在空白状态渲染 -->
+      <html rejects="$alert_ip$">
+        <div style="text-align: center; padding: 100px 40px; background: #0f172a; border: 1px dashed #334155; border-radius: 12px; min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;">
+          <h1 style="color: #334155; font-size: 5em; margin: 0;">⬅️</h1>
+          <h3 style="color: #64748b; margin: 0;">Select an alert on the left to begin autonomous triage.</h3>
+        </div>
+      </html>
+      <html depends="$loading_ai$">
+        <div class="loading-box">
+          <div class="loading-ring"/>
+          <h3 style="color: #3b82f6;">Toolkit AI Analyst is reasoning...</h3>
+          <p style="color: #64748b;">Triaging threat $alert_ip$, drafting SPL queries, and structuring SOAR process steps.</p>
+        </div>
+      </html>
+      <html depends="$ai_answer$, $alert_ip$">
+        <div class="playbook-container">
+
+          <!-- 面板头部 Meta 信息 -->
+          <div style="background: rgba(255, 255, 255, 0.05); padding: 10px 15px; border-radius: 6px; border: 1px solid #475569; font-size: 0.9em; display: flex; gap: 20px; color: #94a3b8;">
+              <span>
+              <b>Target:</b> $alert_ip$</span>
+              <span>
+              <b>Severity:</b> <span style="color: #f97316; font-weight:bold;">$alert_sev$</span>
+            </span>
+              <span>
+              <b>Signature:</b> $alert_sig$</span>
+          </div>
+
+          <!-- 大模型正文输出区 -->
+          <div class="playbook-section">
+            $ai_answer$
+          </div>
+
+          <!-- 模拟操作按钮 (Demo 用) - 升级为 SOAR 动作 -->
+          <div style="margin-top: 15px; text-align: right; display: flex; gap: 10px; justify-content: flex-end;">
+             <button class="soc-btn soc-btn-green">✅ Mark False Positive</button>
+             <button class="soc-btn">🚀 Deploy to Splunk SOAR</button>
+          </div>
+
+        </div>
+      </html>
+    </panel>
+  </row>
+</dashboard>
