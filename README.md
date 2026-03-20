@@ -18,13 +18,13 @@ This application includes five bespoke dashboards, each demonstrating a unique a
 * **Case 4: Autonomous Auditing via Splunk MCP**
   Showcases Autonomous Platform Auditing to monitor and report on platform health and compliance.
 
-* **🏆 Case 5: Talk to Your Logs (AI Chat)**
+* **Case 5: Talk to Your Logs (AI Chat)**
   The crown jewel of this app: a multi-turn, conversational AI interface that reasons over your *actual* log payload. 
   * **Zero Hallucinations:** Analyzes 100% accurate, user-validated Splunk logs rather than blindly guessing context.
   * **KV Store Memory:** Utilizes Splunk's internal KV Store for session-based, continuous conversations.
   * **Blazing Fast `loadjob` Architecture:** AI requests bypass the Splunk indexing tier entirely by retrieving cached results. This saves massive compute resources and completely prevents Splunk's preview-loop "ghost triggers."
 
-* **🏆 Case 6: Dynamic Alert Triage & Playbook Generation (NEW)**
+* **Case 6: Dynamic Alert Triage & Playbook Generation (NEW)**
   Our most advanced SOC scenario yet. Click on any raw security alert to trigger an autonomous "Tier 3" analysis. The AI Toolkit reasons over the context, dynamically generates a markdown-formatted Investigation Playbook (including ready-to-run SPL queries for further hunting), and drafts a formatted JIRA ticket for copy-pasting. Features a sleek, responsive dark-themed triage UI.
 
 ## ⚙️ Prerequisites
