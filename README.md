@@ -21,8 +21,11 @@ This application includes five bespoke dashboards, each demonstrating a unique a
 * **Case 5: Talk to Your Logs (AI Chat)**
   The crown jewel of this app: a multi-turn, conversational AI interface that reasons over your *actual* log payload. 
 
-* **Case 6: Dynamic Alert Triage & Playbook Generation (NEW)**
+* **Case 6: Dynamic Alert Triage & Playbook Generation**
   Our most advanced SOC scenario yet. Click on any raw security alert to trigger an autonomous "Tier 3" analysis. The AI Toolkit reasons over the context, dynamically generates a markdown-formatted Investigation Playbook (including ready-to-run SPL queries for further hunting), and drafts a formatted JIRA ticket for copy-pasting. Features a sleek, responsive dark-themed triage UI.
+
+* **Case 7: Autonomous SOC Agent(NEW)**
+  Pioneers a true Agentic Workflow using the ReAct (Reason, Act, Observe) framework. This bleeding-edge scenario triggers an external AI orchestrator from the Splunk UI, which then autonomously pulls data via the Splunk API(MCP server) to complete complex, multi-step investigations. Watch the agent's "Chain of Thought" stream in real-time on the dashboard as it iteratively plans, executes SPL, and analyzes observations to reach a final verdict.
 
 ## ⚙️ Prerequisites
 
