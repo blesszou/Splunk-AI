@@ -1,0 +1,64 @@
+<form version="1.1" theme="dark">
+  <label>Case 7: Autonomous AI Agent (Zero-Shot Explorer)</label>
+  <description>The AI Agent will autonomously explore your Splunk environment, write its own SPL queries, analyze the results, and decide the next steps until it solves your problem.</description>
+  <fieldset submitButton="true" autoRun="false">
+    <input type="text" token="user_prompt" id="agent_prompt_input">
+      <label>Agent Task Prompt</label>
+      <default>Check if there are any firewall logs in our environment. If yes, find out which source IP has the most 'deny' actions today.</default>
+    </input>
+  </fieldset>
+  <row depends="$hidden$">
+    <panel>
+      <html>
+        <style>
+          /* Geek style input box */
+          #agent_prompt_input { width: 800px !important; }
+          #agent_prompt_input input {
+            font-family: 'SFMono-Regular', Consolas, monospace !important;
+            color: #22d3ee !important;
+            font-size: 15px !important;
+            padding: 10px !important;
+            background-color: #0f172a !important;
+          }
+          /* Streaming table wrap fix: Allows long LLM thoughts to wrap neatly */
+          #agent_stream_table table td {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            font-size: 14px !important;
+            line-height: 1.6 !important;
+          }
+        </style>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Agent's Chain of Thought (Live Stream)</title>
+      <table id="agent_stream_table">
+        <search>
+          <query>| aiagent prompt="$user_prompt$" 
+| eval Time = strftime(_time, "%H:%M:%S")
+| table Time step type content 
+| rename step as Step, type as "Agent Action", content as Details</query>
+          <earliest>-1m</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="count">20</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">none</option>
+        <option name="rowNumbers">false</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Agent Action">
+          <colorPalette type="map">{"🔄 Thinking...": "#475569", 
+             "🤔 Agent Reasoning": "#3b82f6", 
+             "⚙️ Executing Query": "#f59e0b", 
+             "👀 Observation": "#10b981", 
+             "✅ Final Report": "#8b5cf6", 
+             "⚠️ Forced Termination": "#ef4444", 
+             "❌ Parsing Failed": "#ef4444"}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>
