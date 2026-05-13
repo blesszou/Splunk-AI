@@ -1,100 +1,39 @@
 <form version="1.1" theme="dark">
-  <label>Case 7: Autonomous AI Agent</label>
-  <description>Initiate an autonomous agent to explore, reason, and execute security investigations dynamically within your Splunk environment.</description>
+  <label>Case 7: Autonomous AI Agent (Zero-Shot Explorer)</label>
+  <description>The AI Agent will autonomously explore your Splunk environment, write its own SPL queries, analyze the results, and decide the next steps until it solves your problem.</description>
   <fieldset submitButton="true" autoRun="false">
     <input type="text" token="user_prompt" id="agent_prompt_input">
       <label>Agent Task Prompt</label>
-      <default>我们的环境里有防火墙日志吗？如果有，今天被拒绝次数最多的源 IP 是谁？</default>
+      <default>Check if there are any firewall logs in our environment. If yes, find out which source IP has the most 'deny' actions today.</default>
     </input>
   </fieldset>
   <row depends="$hidden$">
     <panel>
       <html>
         <style>
-          /* 1. 毁灭级背景黑化：强制覆盖 Splunk 所有基础容器背景 */
-          body, .dashboard-body, .dashboard-container, .dashboard-layout,
-          .dashboard-row, .dashboard-panel, .panel-element-row, .dashboard-header {
-            background-color: #050505 !important;
-            background-image: none !important;
-          }
-
-          /* 2. 🌟 全局文字点亮：修复标题和说明文字看不清的问题 */
-          .dashboard-title, h1.dashboard-title { color: #ffffff !important; font-weight: bold !important; letter-spacing: 1px !important; }
-          .dashboard-description, p.description { color: #cbd5e1 !important; font-size: 14px !important; line-height: 1.5 !important; }
-          .fieldset .input label { color: #f8fafc !important; font-family: 'SFMono-Regular', Consolas, monospace !important; font-size: 14px !important; }
-
-          /* 3. 面板修饰与终端标题 */
-          .dashboard-panel {
-            border: 1px solid #1e293b !important;
-            border-radius: 8px !important;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.8) !important;
-          }
-          .dashboard-panel .panel-title { color: #38bdf8 !important; font-family: monospace !important; letter-spacing: 1px; }
-
-          /* 4. 重塑输入框：发光代码框 */
-          #agent_prompt_input { width: 850px !important; margin-bottom: 15px; }
+          /* Geek style input box */
+          #agent_prompt_input { width: 800px !important; }
           #agent_prompt_input input {
             font-family: 'SFMono-Regular', Consolas, monospace !important;
             color: #22d3ee !important;
             font-size: 15px !important;
-            padding: 12px 15px !important;
+            padding: 10px !important;
             background-color: #0f172a !important;
-            border: 1px solid #0ea5e9 !important;
-            border-radius: 6px !important;
-            box-shadow: 0 0 12px rgba(14, 165, 233, 0.2) !important;
           }
-
-          /* 5. 彻底抹杀传统表格外观，强行透明化 */
-          #agent_stream_table { background-color: transparent !important; }
-          #agent_stream_table table th { display: none !important; }
-
-          #agent_stream_table table, #agent_stream_table tbody, #agent_stream_table tr, #agent_stream_table td {
-            background-color: transparent !important;
-            border: none !important;
-          }
-
-          #agent_stream_table table tr.odd td, #agent_stream_table table tr.even td {
-            border-bottom: 1px dashed #1e293b !important;
-            padding-top: 14px !important;
-            padding-bottom: 14px !important;
-          }
-
-          /* 6. 精确控制每一列，打造对话流布局 */
-          #agent_stream_table table td:nth-child(1) {
-            color: #64748b !important;
-            font-family: Consolas, monospace !important;
-            width: 90px !important;
-            vertical-align: top !important;
-          }
-          #agent_stream_table table td:nth-child(2) {
-            color: #475569 !important;
-            font-weight: bold !important;
-            width: 40px !important;
-            vertical-align: top !important;
-          }
-          #agent_stream_table table td:nth-child(3) {
-            font-weight: bold !important;
-            width: 160px !important;
-            vertical-align: top !important;
-          }
-          #agent_stream_table table td:nth-child(4) {
-            color: #e2e8f0 !important;
-            font-family: 'SFMono-Regular', Consolas, monospace !important;
+          /* Streaming table wrap fix: Allows long LLM thoughts to wrap neatly */
+          #agent_stream_table table td {
             white-space: pre-wrap !important;
             word-wrap: break-word !important;
             font-size: 14px !important;
             line-height: 1.6 !important;
           }
-
-          /* 隐藏底部的多余控件 */
-          .results-table-controls, .shared-resultstable-resultstablerowscount, .search-timerange { display: none !important; }
         </style>
       </html>
     </panel>
   </row>
   <row>
     <panel>
-      <title>&gt;_ AGENT.STREAM.PROCESS</title>
+      <title>Agent's Chain of Thought (Live Stream)</title>
       <table id="agent_stream_table">
         <search>
           <query>| aiagent prompt="$user_prompt$"
@@ -105,24 +44,17 @@
           <latest>now</latest>
           <sampleRatio>1</sampleRatio>
         </search>
-        <option name="count">50</option>
+        <option name="count">20</option>
         <option name="dataOverlayMode">none</option>
         <option name="drilldown">none</option>
         <option name="rowNumbers">false</option>
         <option name="wrap">true</option>
         <format type="color" field="Agent Action">
-          <colorPalette type="map">{"🔄 思考中...": "#475569",
-             "🤔 智能体推理": "#3b82f6",
-             "⚙️ 执行查询": "#f59e0b",
-             "👀 观察结果": "#10b981",
-             "✅ 最终报告": "#a855f7",
-             "⚠️ 强制终止": "#ef4444",
-             "❌ 解析失败": "#ef4444",
-             "🔄 Thinking...": "#475569",
+          <colorPalette type="map">{"🔄 Thinking...": "#475569",
              "🤔 Agent Reasoning": "#3b82f6",
              "⚙️ Executing Query": "#f59e0b",
              "👀 Observation": "#10b981",
-             "✅ Final Report": "#a855f7",
+             "✅ Final Report": "#8b5cf6",
              "⚠️ Forced Termination": "#ef4444",
              "❌ Parsing Failed": "#ef4444"}</colorPalette>
         </format>
