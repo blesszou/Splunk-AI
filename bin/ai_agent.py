@@ -5,200 +5,120 @@ import sys
 import os
 import time
 import json
-import re
-import urllib.request
-import urllib.error
+import asyncio
+import queue
+import threading
 import configparser
+
+app_bin_dir = os.path.dirname(os.path.abspath(__file__))
+lib_dir = os.path.join(app_bin_dir, 'lib')
+if lib_dir not in sys.path:
+    sys.path.insert(0, lib_dir)
+
+import importlib.metadata
+try:
+    _original_version = importlib.metadata.version
+
+    def _mock_version(package_name):
+        if package_name == "splunk-sdk": return "3.0.0"
+        return _original_version(package_name)
+
+    importlib.metadata.version = _mock_version
+except Exception:
+    pass
+
+CA_TRUST_STORE = "/opt/splunk/openssl/cert.pem"
+if os.environ.get("SSL_CERT_FILE") == CA_TRUST_STORE and not os.path.exists(CA_TRUST_STORE):
+    os.environ["SSL_CERT_FILE"] = ""
+
 from splunklib.searchcommands import dispatch, GeneratingCommand, Configuration, Option
 import splunklib.client as client
+
+from splunklib.ai import Agent, GoogleModel, OpenAIModel
+from splunklib.ai.messages import HumanMessage
+from splunklib.ai.tool_settings import ToolSettings
+from splunklib.ai.hooks import before_model, after_model
+from splunklib.ai.middleware import (
+    ModelRequest, ModelResponse, tool_middleware, ToolMiddlewareHandler, ToolRequest, ToolResponse
+)
+
+
+def _extract_text(content) -> str:
+    """Handles str, TextBlock, or list of TextBlock from model responses."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            block.text if hasattr(block, 'text') else str(block)
+            for block in content
+        )
+    if hasattr(content, 'text'):
+        return content.text
+    return str(content)
 
 
 @Configuration()
 class AIAgentCommand(GeneratingCommand):
     prompt = Option(require=True)
-    # Default provider is gemini, can be overridden in SPL via provider="ollama"
     provider = Option(require=False, default="gemini")
 
     def _get_config(self, provider_name):
-        """Read configuration from agent_config.conf (handles default and local priority)."""
         app_name = self._metadata.searchinfo.app
-        splunk_home = os.environ.get('SPLUNK_HOME', '/opt/splunk')
-
         config = configparser.ConfigParser()
-        default_conf = os.path.join(splunk_home, 'etc', 'apps', app_name, 'default', 'agent_config.conf')
-        local_conf = os.path.join(splunk_home, 'etc', 'apps', app_name, 'local', 'agent_config.conf')
+        config.read(os.path.join(
+            os.environ.get('SPLUNK_HOME', '/opt/splunk'),
+            'etc', 'apps', app_name, 'default', 'agent_config.conf'
+        ))
+        return dict(config[provider_name])
 
-        config.read([default_conf, local_conf])
+    async def run_agent_async(self, service, ui_queue):
+        conf = self._get_config(self.provider)
 
-        if provider_name in config.sections():
-            return dict(config[provider_name])
+        if self.provider.lower() == "gemini":
+            model = GoogleModel(model=conf.get("model_name"), api_key=conf.get("api_key"))
         else:
-            raise ValueError(f"Provider [{provider_name}] not found in agent_config.conf")
+            model = OpenAIModel(model=conf.get("model_name"), base_url=conf.get("base_url"), api_key="ignored")
 
-    def _clean_json(self, text):
-        """Robust JSON extractor using Regex to prevent LLM chatty syndrome."""
-        text = text.strip()
-        match = re.search(r'\{[\s\S]*\}', text)
-        if match:
-            return match.group(0)
-        return text
+        @before_model
+        def emit_thinking(req: ModelRequest) -> None:
+            ui_queue.put({'type': '🔄 Thinking...', 'content': 'Agent is planning...'})
 
-    def _call_llm(self, messages, system_prompt):
-        """Router function to call the selected LLM provider based on config."""
-        try:
-            # 1. Fetch credentials from agent_config.conf
-            conf = self._get_config(self.provider)
-            base_url = conf.get("base_url", "")
-            model_name = conf.get("model_name", "")
-            api_key = conf.get("api_key", "")
+        @after_model
+        def emit_thought(resp: ModelResponse) -> None:
+            text = _extract_text(resp.message.content)
+            if text:
+                ui_queue.put({'type': '🤔 Agent Reasoning', 'content': text})
 
-            # 2. Route to Gemini Engine
-            if self.provider.lower() == "gemini":
-                url = f"{base_url}{model_name}:generateContent?key={api_key}"
+        @tool_middleware
+        async def intercept_tool(request: ToolRequest, handler: ToolMiddlewareHandler) -> ToolResponse:
+            ui_queue.put({'type': '⚙️ Executing Query', 'content': str(request.call.args)})
+            resp = await handler(request)
+            ui_queue.put({'type': '👀 Observation', 'content': 'Query executed.'})
+            return resp
 
-                # Format standard messages to Gemini v1beta spec
-                gemini_messages = []
-                for msg in messages:
-                    role = "model" if msg["role"] == "assistant" else "user"
-                    gemini_messages.append({"role": role, "parts": [{"text": msg["content"]}]})
-
-                payload = {
-                    "systemInstruction": {"parts": [{"text": system_prompt}]},
-                    "contents": gemini_messages,
-                    "generationConfig": {
-                        "responseMimeType": "application/json",
-                        "temperature": 0.1
-                    }
-                }
-
-                req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'),
-                                             headers={'Content-Type': 'application/json'})
-                response = urllib.request.urlopen(req, timeout=120)
-                res_data = json.loads(response.read().decode('utf-8'))
-
-                candidates = res_data.get("candidates", [])
-                if not candidates:
-                    return json.dumps({"Thought": "Error: Empty response.", "Action": "FINISH",
-                                       "Final_Answer": "No candidates returned from Gemini."})
-                return candidates[0].get("content", {}).get("parts", [])[0].get("text", "")
-
-            # 3. Route to Ollama Engine
-            elif self.provider.lower() == "ollama":
-                ollama_messages = [{"role": "system", "content": system_prompt}] + messages
-                payload = {
-                    "model": model_name,
-                    "messages": ollama_messages,
-                    "stream": False
-                }
-                req = urllib.request.Request(base_url, data=json.dumps(payload).encode('utf-8'),
-                                             headers={'Content-Type': 'application/json'})
-                response = urllib.request.urlopen(req, timeout=120)
-                res_data = json.loads(response.read().decode('utf-8'))
-                return res_data.get("message", {}).get("content", "")
-
-            else:
-                return json.dumps({"Thought": f"Unknown provider: {self.provider}", "Action": "FINISH",
-                                   "Final_Answer": "Check agent_config.conf"})
-
-        except urllib.error.HTTPError as e:
-            error_msg = e.read().decode('utf-8')
-            return json.dumps({"Thought": f"API HTTP Error: {e.code}", "Action": "FINISH", "Final_Answer": error_msg})
-        except Exception as e:
-            return json.dumps({"Thought": f"System Error: {str(e)}", "Action": "FINISH",
-                               "Final_Answer": "Failed to execute LLM request."})
-
-    def _run_subsearch(self, spl_query, session_key):
-        """Silently execute SPL in the background and return observations."""
-        service = client.connect(token=session_key)
-
-        if not spl_query.strip().startswith("| tstats") and "| head" not in spl_query:
-            spl_query = f"{spl_query} | head 20"
-
-        if not spl_query.startswith("search") and not spl_query.startswith("|"):
-            spl_query = "search " + spl_query
-
-        try:
-            job = service.jobs.oneshot(spl_query, output_mode="json")
-            results = json.loads(job.read().decode('utf-8'))
-            records = results.get("results", [])
-
-            if len(records) == 0:
-                return "The query returned no results."
-            return json.dumps(records[:10])
-        except Exception as e:
-            return f"Error executing SPL: {str(e)}"
+        async with Agent(
+            model=model,
+            system_prompt="You are a helpful Splunk security analyst. Use run_splunk_query to search Splunk data and answer the user's question accurately.",
+            service=service,
+            tool_settings=ToolSettings(local=True, remote=None),
+            middleware=[emit_thinking, emit_thought, intercept_tool]
+        ) as agent:
+            result = await agent.invoke([HumanMessage(content=self.prompt)])
+            ui_queue.put({'type': '✅ Final Report', 'content': _extract_text(result.final_message.content)})
+        ui_queue.put(None)
 
     def generate(self):
         session_key = self._metadata.searchinfo.session_key
-
-        # Dynamic model name extraction for UI Polish
-        try:
-            conf = self._get_config(self.provider)
-            display_model = conf.get("model_name", self.provider)
-        except Exception:
-            display_model = self.provider
-
-        system_prompt = """You are an autonomous Splunk Security Analyst Agent.
-You operate in a "blind box" environment. You do not know what indexes, sourcetypes, or data exist.
-Your task is to fulfill the user's request by iteratively searching the Splunk environment.
-
-CRITICAL RULES:
-1. EXPLORE FIRST: If you don't know the index, use `| tstats count where index=* by index, sourcetype`.
-2. EFFICIENCY: Always append `| head 20` to raw searches.
-3. STRICT FORMAT: You MUST ONLY output valid JSON. NO conversational text outside the JSON block.
-4. JSON STRUCTURE:
-{
-  "Thought": "Your reasoning here.",
-  "Action": "The SPL query to run, OR output 'FINISH' if you have the answer.",
-  "Final_Answer": "If Action is 'FINISH', write the final report here. Otherwise, leave empty."
-}"""
-
-        messages = [
-            {"role": "user", "content": f"Task: {self.prompt}"}
-        ]
-
-        max_iterations = 6
-
-        for step in range(1, max_iterations + 1):
-            # dynamically show the model name from config!
-            yield {'_time': time.time(), 'step': step, 'type': '🔄 Thinking...',
-                   'content': f'Waiting for {display_model} decision...'}
-
-            llm_response = self._call_llm(messages, system_prompt)
-
-            try:
-                cleaned_response = self._clean_json(llm_response)
-                parsed_res = json.loads(cleaned_response)
-                thought = parsed_res.get("Thought", "No thought provided.")
-                action = parsed_res.get("Action", "FINISH")
-                final_answer = parsed_res.get("Final_Answer", "")
-            except Exception as e:
-                yield {'_time': time.time(), 'step': step, 'type': '⚠️ Format Recovered',
-                       'content': "LLM dropped JSON format. Attempting to recover text as final report..."}
-                thought = "The LLM output invalid JSON. Wrapping it as the final answer."
-                action = "FINISH"
-                final_answer = llm_response
-
-            yield {'_time': time.time(), 'step': step, 'type': '🤔 Agent Reasoning', 'content': thought}
-
-            if action.strip() == "FINISH":
-                yield {'_time': time.time(), 'step': step, 'type': '✅ Final Report', 'content': final_answer}
-                break
-
-            yield {'_time': time.time(), 'step': step, 'type': '⚙️ Executing Query', 'content': action}
-            observation = self._run_subsearch(action, session_key)
-            yield {'_time': time.time(), 'step': step, 'type': '👀 Observation',
-                   'content': f"Fetched {len(observation)} bytes of data results."}
-
-            messages.append({"role": "assistant", "content": llm_response})
-            messages.append(
-                {"role": "user",
-                 "content": f"Observation from your query: {observation}\nWhat is your next step? (REMEMBER: Output ONLY JSON)"}
-            )
-
-            if step == max_iterations:
-                yield {'_time': time.time(), 'step': step, 'type': '⚠️ Forced Termination',
-                       'content': 'Max iterations reached. Task aborted.'}
+        service = client.connect(token=session_key)
+        ui_queue = queue.Queue()
+        threading.Thread(target=lambda: asyncio.run(self.run_agent_async(service, ui_queue))).start()
+        step = 1
+        while True:
+            event = ui_queue.get()
+            if event is None: break
+            event.update({'_time': time.time(), 'step': step})
+            yield event
+            step += 1
 
 
 if __name__ == "__main__":

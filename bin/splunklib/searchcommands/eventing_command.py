@@ -1,6 +1,4 @@
-# coding=utf-8
-#
-# Copyright © 2011-2024 Splunk, Inc.
+# Copyright © 2011-2026 Splunk, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"): you may
 # not use this file except in compliance with the License. You may obtain
@@ -15,8 +13,8 @@
 # under the License.
 
 
-from .decorators import ConfigurationSetting
-from .search_command import SearchCommand
+from splunklib.searchcommands.decorators import ConfigurationSetting
+from splunklib.searchcommands.search_command import SearchCommand
 
 
 class EventingCommand(SearchCommand):

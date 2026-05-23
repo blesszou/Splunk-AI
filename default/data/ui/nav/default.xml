@@ -6,6 +6,8 @@
     <view name="ai_case_3"/>
     <view name="ai_case_4"/>
     <view name="ai_case_5"/>
+    <view name="ai_case_6"/>
+    <view name="ai_case_7"/>
   </collection>
   <view name="search" />
   <view name="dashboards" />

@@ -1,5 +1,5 @@
 <form version="1.1" theme="dark">
-  <label>Case 7: Autonomous AI Agent (Zero-Shot Explorer)</label>
+  <label>Autonomous AI Agent (Zero-Shot Explorer)</label>
   <description>The AI Agent will autonomously explore your Splunk environment, write its own SPL queries, analyze the results, and decide the next steps until it solves your problem.</description>
   <fieldset submitButton="true" autoRun="false">
     <input type="text" token="user_prompt" id="agent_prompt_input">
