@@ -1,4 +1,4 @@
-<form version="1.1" theme="dark">
+<form version="1.1" theme="dark" script="ai_drawer.js" stylesheet="ai_drawer.css">
   <label>Chat with your Data (AI Log Analyst)</label>
   <description>Step 1: Write SPL to fetch logs. Step 2: Ask AI to analyze them (with KV Store memory).</description>
 
@@ -21,61 +21,7 @@
     </done>
   </search>
 
-  <!-- Core Backend Processing: Using loadjob to entirely bypass Preview mode -->
-  <!-- 🌟 核心升级：增加 ai_target_sid 依赖，防止在空数据状态下被恶意触发 -->
-  <search id="ai_brain" depends="$ai_trigger$, $ai_target_sid$">
-    <query>
-      | loadjob $ai_target_sid$
-      | eval force_run="$ai_trigger$"
-      | fields - force_run
-      | llmchat session="$ai_session_tok$" prompt="$ai_chat_prompt$"
-      | eval chat_history=coalesce(chat_history, "No previous conversation history found.")
-      <!-- 🌟 终极防弹机制：将所有文本中的美元符号($)替换为安全 HTML 实体(&#36;) -->
-      | eval chat_history=replace(chat_history, "[\$$]", "&amp;#36;")
-      | eval ai_response=replace(ai_response, "[\$$]", "&amp;#36;")
-      | eval safe_prompt=replace(user_prompt, "[\$$]", "&amp;#36;")
-    </query>
-    <!-- loadjob 不需要时间范围，因为它读取的是已完成的任务结果 -->
-    <progress>
-      <set token="loading_ai">true</set>
-      <unset token="ai_answer"></unset>
-      <unset token="chat_history"></unset>
-      <unset token="safe_prompt"></unset>
-    </progress>
-    
-    <!-- 拦截各种失败情况，防止界面消失 -->
-    <error>
-      <unset token="loading_ai"></unset>
-      <set token="ai_answer">❌ Execution Error: Could not load the data job or execute the AI script. (Error message: $err.message$)</set>
-      <set token="analyzed_count">0</set>
-      <set token="chat_history">No history available due to error.</set>
-      <set token="safe_prompt">$ai_chat_prompt$</set>
-    </error>
-    <fail>
-      <unset token="loading_ai"></unset>
-      <set token="ai_answer">❌ Search Failed: The background LLM process could not complete.</set>
-      <set token="analyzed_count">0</set>
-      <set token="chat_history">No history available due to failure.</set>
-      <set token="safe_prompt">$ai_chat_prompt$</set>
-    </fail>
 
-    <done>
-      <condition match="'job.resultCount' == 0">
-        <unset token="loading_ai"></unset>
-        <set token="ai_answer">⚠️ No data found. The initial search yielded 0 results, so there is nothing to analyze.</set>
-        <set token="analyzed_count">0</set>
-        <set token="chat_history">No previous conversation history or no data yielded.</set>
-        <set token="safe_prompt">$ai_chat_prompt$</set>
-      </condition>
-      <condition>
-        <unset token="loading_ai"></unset>
-        <set token="ai_answer">$result.ai_response$</set>
-        <set token="analyzed_count">$result.analyzed_count$</set>
-        <set token="chat_history">$result.chat_history$</set> 
-        <set token="safe_prompt">$result.safe_prompt$</set>
-      </condition>
-    </done>
-  </search>
 
   <!-- Step 1 Inputs Section: ONLY controls data fetching now -->
   <fieldset submitButton="true" autoRun="false">
@@ -298,14 +244,42 @@
   </row>
 
   <!-- ========================================== -->
+  <!-- ✨ AI DRAWER TRIGGER BUTTON                -->
+  <!-- ========================================== -->
+  <row>
+    <panel>
+      <html>
+        <div style="display:flex; align-items:center; gap:15px; padding: 4px 0;">
+          <button id="btn-open-ai" style="
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 24px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(124, 58, 237, 0.5);
+            transition: all 0.2s ease-in-out;
+            letter-spacing: 0.3px;
+          "
+          onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(124,58,237,0.7)'"
+          onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(124,58,237,0.5)'"
+          >✨ Investigate with AI</button>
+          <span style="color:#64748b; font-size:13px;">Open the AI Agent drawer to run autonomous investigations on your data</span>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <!-- ========================================== -->
   <!-- 🚀 MAIN RESULTS SECTION                    -->
   <!-- ========================================== -->
 
-  <!-- Main Horizontal Layout for Data and Chat -->
+  <!-- Main Data Table: now spans full width -->
   <row>
-    <!-- Left Section: Raw Data Preview Table (Visible always) -->
     <panel id="preview_panel">
-      <title>🔍 Step 1: Raw Data Preview (Top 50 rows sent to AI)</title>
+      <title>🔍 Raw Data Preview (Top 50 rows) — click ✨ Investigate with AI to analyze</title>
       <table>
         <search id="base_data_search">
           <query>$spl_query$ | head 50</query>
@@ -316,100 +290,13 @@
             <unset token="base_sid"></unset>
           </progress>
           <done>
-            <!-- 🌟 核心魔法 1：当左侧搜索 100% 彻底完成后，捕获它的真实 Job SID -->
+            <!-- 🌟 核心魔法：当搜索 100% 完成后，捕获 Job SID 供 AI 抽屉使用 -->
             <set token="base_sid">$job.sid$</set>
           </done>
         </search>
         <option name="drilldown">none</option>
         <option name="refresh.display">progressbar</option>
       </table>
-    </panel>
-
-    <!-- Right Section: Step 2 AI Interface -->
-    <panel id="ai_panel" depends="$spl_query$">
-      <title>🧠 Step 2: AI Analysis (Session: $session_tok$)</title>
-      
-      <input type="text" token="chat_prompt" searchWhenChanged="false" id="chat_prompt_input">
-        <label>Ask AI about the data on the left:</label>
-        <default>Please summarize the main errors and their possible root causes.</default>
-      </input>
-
-      <!-- ✨ 一键清除对话历史并重置 Session 的快捷按钮 -->
-      <input type="link" token="dummy_clear" id="clear_session_btn" searchWhenChanged="true">
-        <label></label>
-        <choice value="clear">🗑️ Clear History</choice>
-        <change>
-          <condition value="clear">
-            <!-- 🌟 终极隔离修复：在清除时，绝对不触碰底层搜索依赖的任何变量，只更新 UI 层的 session_tok -->
-            <eval token="session_tok">"data_chat_" . now()</eval>
-            
-            <!-- 强力清理前端界面残留，同时锁死 UI 安全锁 -->
-            <unset token="ai_answer"></unset>
-            <unset token="chat_history"></unset>
-            <unset token="safe_prompt"></unset>
-            <unset token="show_ai_results"></unset>
-            <unset token="form.dummy_clear"></unset>
-          </condition>
-        </change>
-      </input>
-
-      <!-- 🌟 核心魔法 2：只有当左侧搜索结束拿到了 base_sid 时，按钮才允许被点击触发 -->
-      <input type="link" token="dummy_ask" id="ask_ai_btn" searchWhenChanged="true" depends="$base_sid$">
-        <label></label>
-        <choice value="run">Analyze Data 🚀</choice>
-        <change>
-          <condition value="run">
-            <!-- 拍下当前的变量快照，传递给专门的搜索执行 Token -->
-            <set token="ai_target_sid">$base_sid$</set>
-            <set token="ai_chat_prompt">$chat_prompt$</set>
-            <set token="ai_session_tok">$session_tok$</set>
-            <!-- 强制更新触发器，让搜索必定执行 -->
-            <eval token="ai_trigger">now()</eval>
-            <!-- 🌟 UI 安全锁解锁：明确声明是由真实点击触发的，允许展示气泡 -->
-            <set token="show_ai_results">true</set>
-            <unset token="form.dummy_ask"></unset>
-          </condition>
-        </change>
-      </input>
-
-      <!-- Sub-State: Loading Animation -->
-      <html depends="$loading_ai$">
-        <div style="text-align: center; padding: 50px 20px; background-color: #0f172a; border-radius: 8px; border: 1px dashed #475569; min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-          <h3 style="color: #22d3ee; margin-top: 0;">🤖 AI is analyzing your data...</h3>
-          <p style="color: #94a3b8; font-size: 14px;">Feeding cached search results to the LLM. This will bypass the indexing tier and run instantly.</p>
-          <div class="loading-spinner"></div>
-        </div>
-      </html>
-
-      <!-- Sub-State: Chat Results (Flat Layout: Newest on top, History below) -->
-      <!-- 🌟 UI 安全锁：加入 show_ai_results 依赖，防止初次加载或页面刷新时出现幽灵报错 -->
-      <html depends="$ai_answer$, $show_ai_results$">
-        <div class="chat-container">
-          
-          <!-- 1. 置顶显示最新对话 -->
-          <div class="bubble user-bubble">
-            <b>🧑‍💻 You (Latest):</b><br/>
-            $safe_prompt$
-          </div>
-          <div class="bubble ai-bubble ai-bubble-latest">
-            <b>🤖 AI Log Analyst (Latest):</b><br/><br/>
-            $ai_answer$
-            <span class="stats-badge"><i>✓ Successfully loaded cached results and analyzed $analyzed_count$ log events.</i></span>
-          </div>
-          
-          <!-- 2. 分割线 -->
-          <div style="width: 100%; text-align: center; margin: 15px 0; position: relative;">
-            <hr style="border: none; border-top: 1px dashed #475569; position: absolute; width: 100%; top: 50%; z-index: 1; margin: 0;" />
-            <span style="background-color: #0f172a; padding: 0 15px; color: #94a3b8; font-size: 12px; position: relative; z-index: 2;">Previous Chat History</span>
-          </div>
-
-          <!-- 3. 历史记录大号气泡平铺显示 -->
-          <div class="bubble ai-bubble" style="align-self: stretch; max-width: 100%; background-color: #162032; opacity: 0.85;">
-            $chat_history$
-          </div>
-          
-        </div>
-      </html>
     </panel>
   </row>
 
