@@ -204,10 +204,12 @@ class AIAgentCommand(GeneratingCommand):
             logger.debug("Started agent thread")
 
             step = 1
+            deadline = time.time() + 300  # 5 minute hard limit
             while True:
                 try:
-                    # Add timeout to prevent infinite blocking
-                    event = ui_queue.get(timeout=300)  # 5 minute timeout
+                    # Poll with a short timeout so we can emit heartbeats and
+                    # prevent Splunk's auto-cancel from firing during long LLM calls.
+                    event = ui_queue.get(timeout=30)
                     if event is None:
                         logger.info("Agent completed successfully")
                         break
@@ -217,14 +219,31 @@ class AIAgentCommand(GeneratingCommand):
                     step += 1
 
                 except queue.Empty:
-                    logger.error("Agent timed out after 5 minutes")
+                    if not agent_thread.is_alive():
+                        # Thread finished but sent no None sentinel — treat as done
+                        logger.warning("Agent thread ended without sentinel")
+                        break
+
+                    if time.time() >= deadline:
+                        logger.error("Agent timed out after 5 minutes")
+                        yield {
+                            '_time': time.time(),
+                            'step': step,
+                            'type': '❌ Timeout',
+                            'content': 'Agent execution timed out after 5 minutes'
+                        }
+                        break
+
+                    # Yield a heartbeat to keep the Splunk search alive
+                    # while the LLM is still thinking.
+                    logger.debug("Emitting heartbeat to prevent search auto-cancel")
                     yield {
                         '_time': time.time(),
                         'step': step,
-                        'type': '❌ Timeout',
-                        'content': 'Agent execution timed out after 5 minutes'
+                        'type': '⏳ Working...',
+                        'content': 'Agent is processing, please wait...'
                     }
-                    break
+                    step += 1
 
         except Exception as e:
             logger.error(f"Search command failed: {str(e)}", exc_info=True)
