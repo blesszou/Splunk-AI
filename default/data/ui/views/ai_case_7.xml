@@ -36,7 +36,7 @@
       <title>Agent's Chain of Thought (Live Stream)</title>
       <table id="agent_stream_table">
         <search>
-          <query>| aiagent prompt="$user_prompt$"
+          <query>| aiagentx prompt="$user_prompt$"
 | eval Time = strftime(_time, "%H:%M:%S")
 | table Time step type content
 | rename step as Step, type as "Agent Action", content as Details</query>
