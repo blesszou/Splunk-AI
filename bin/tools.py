@@ -9,23 +9,59 @@ if lib_dir not in sys.path:
     sys.path.insert(0, lib_dir)
 # ──────────────────────────────────────────────────────────────────────
 
+from spl_guard import guarded
 from splunklib.ai.registry import ToolRegistry, ToolContext
 
 registry = ToolRegistry()
+
+# Splunk internal bookkeeping fields to strip from output
+_IGNORED_FIELDS = {
+    "_bkt", "_cd", "_si", "_serial", "_indextime", "_eventtype_color", 
+    "_subsecond", "_kv", "_subseconds", "_kv_field", "linecount"
+}
+
+def _clean_event(event: dict) -> dict:
+    """Strips noisy Splunk internal metadata and truncates overly long _raw text."""
+    clean = {}
+    for k, v in event.items():
+        if k in _IGNORED_FIELDS or k.startswith("__"):
+            continue
+        if k == "_raw" and isinstance(v, str) and len(v) > 400:
+            clean[k] = v[:400] + "... [truncated]"
+        elif isinstance(v, str) and len(v) > 500:
+            clean[k] = v[:500] + "... [truncated]"
+        else:
+            clean[k] = v
+    return clean
 
 @registry.tool()
 def run_splunk_query(ctx: ToolContext, query: str) -> str:
     """Execute a Splunk SPL query and return results for log analysis."""
     if isinstance(query, list):
         query = " ".join([str(q) for q in query])
-    if not query.strip().startswith("|") and "head" not in query:
-        query = f"search {query} | head 20"
+    
+    clean_query = query.strip()
+    if not clean_query.startswith("|") and not clean_query.startswith("search"):
+        clean_query = f"search {clean_query}"
+
+    # The query came from the model, so it is untrusted input even though it will
+    # run with the search user's full permissions.
+    allowed, reason = guarded(clean_query)
+    if not allowed:
+        return f"Query refused by the read-only guardrail. {reason}"
+
     try:
-        job = ctx.service.jobs.oneshot(query, output_mode="json")
+        job = ctx.service.jobs.oneshot(clean_query, output_mode="json", count=30)
         res = json.loads(job.read().decode('utf-8'))
-        return json.dumps(res.get("results", [])[:10])
+        results = res.get("results", [])
+        if not results:
+            return "No matching events found for this query in Splunk."
+        
+        # Clean noisy internal metadata and keep results concise
+        cleaned_results = [_clean_event(e) for e in results[:15]]
+        return json.dumps(cleaned_results, ensure_ascii=False)
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error executing SPL '{clean_query}': {str(e)}"
 
 if __name__ == "__main__":
     registry.run()

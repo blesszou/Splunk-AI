@@ -1,2 +1,25 @@
 .DS_Store
-default/agent_config.conf
+
+# Never commit credentials or local overrides.
+local/
+local.meta
+*.pem
+*.key
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime dependencies — regenerate with ./build.sh.
+# Contains platform-specific .so files that must not be shared between machines.
+bin/lib/
+
+# Stray top-level installs from a past pip run into bin/. No search command
+# imports these; build.sh installs everything under bin/lib instead.
+bin/packaging/
+bin/deprecation.py
+
+# macOS codesign entitlements used to unblock the .so files in bin/lib on a
+# local dev machine. Machine-specific, and meaningless on a Splunk server.
+bin/entitlements.xml

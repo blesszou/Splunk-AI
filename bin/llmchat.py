@@ -17,39 +17,43 @@ Model configuration is shared with ai_agent.py via agent_config.conf:
 
     [gemini]
     base_url  = https://generativelanguage.googleapis.com/v1beta/openai/
-    model_name = gemini-2.0-flash
-    api_key   = <your-api-key>
+    model_name = gemini-3.1-flash-lite
+
+API keys are NOT read from this file — see bin/ai_secrets.py.
 """
 
 import sys
 import os
+import base64
 import json
 import copy
 import time
-import asyncio
 import configparser
 import logging
-import urllib.parse
+import re
 
-import requests
-
-# ── Vendored lib path (openai SDK, httpx, etc.) ──────────────────────────────
+# ── Vendored lib path ─────────────────────────────────────────────────────────
+# NOTE: We intentionally do NOT import `openai` (which pulls in pydantic_core,
+# a compiled .so that fails macOS hardened-runtime library-validation when
+# copied from another machine).  Instead we call the OpenAI-compatible REST
+# API directly via `requests`, which is pure Python.
 _app_bin = os.path.dirname(os.path.abspath(__file__))
 _lib_dir = os.path.join(_app_bin, "lib")
 if _lib_dir not in sys.path:
     sys.path.insert(0, _lib_dir)
 
-import openai  # openai >= 1.x from bin/lib/
+import requests  # pure-Python, no compiled extensions required
 
-from splunklib.searchcommands import dispatch, StreamingCommand, Configuration, Option
-
+from ai_secrets import resolve_api_key
 from splunklib.searchcommands import dispatch, StreamingCommand, Configuration, Option
 
 logger = logging.getLogger(__name__)
 CA_TRUST_STORE = os.path.join(os.environ.get('SPLUNK_HOME', '/opt/splunk'), 'openssl', 'cert.pem')
-_ssl_cert_file = os.environ.get("SSL_CERT_FILE", "")
-if _ssl_cert_file and not os.path.exists(_ssl_cert_file):
-    del os.environ["SSL_CERT_FILE"]
+
+
+def _tls_verify():
+    """Verify target for outbound calls that carry an API key."""
+    return CA_TRUST_STORE if os.path.exists(CA_TRUST_STORE) else True
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper: extract text from a content that might be str or list of blocks
@@ -75,8 +79,16 @@ class LLMDataChatCommand(StreamingCommand):
     """
 
     prompt = Option(
-        require=True,
+        require=False,
+        default="",
         doc="The user's question regarding the current search results",
+    )
+    prompt_b64 = Option(
+        require=False,
+        default="",
+        doc="Base64-encoded UTF-8 prompt. Used by callers that build SPL "
+            "programmatically, so free-form text never reaches the SPL parser "
+            "as a string literal. Takes precedence over 'prompt'.",
     )
     session = Option(
         require=False,
@@ -123,10 +135,17 @@ class LLMDataChatCommand(StreamingCommand):
 
             if "model_name" not in conf:
                 raise ValueError(f"'model_name' is required in [{provider_name}]")
-            if provider_name.lower() != "ollama" and "api_key" not in conf:
-                raise ValueError(f"'api_key' is required in [{provider_name}]")
             if "base_url" not in conf:
                 raise ValueError(f"'base_url' is required in [{provider_name}]")
+
+            # The key comes from storage/passwords; the conf value is only a
+            # deprecated fallback for existing installs.
+            conf["api_key"] = resolve_api_key(
+                provider_name,
+                info.session_key,
+                conf.get("api_key"),
+                app=app_name,
+            )
 
             logger.info(
                 "Loaded config for provider=%s model=%s",
@@ -139,6 +158,25 @@ class LLMDataChatCommand(StreamingCommand):
             logger.error("Failed to load agent_config.conf: %s", exc)
             raise
 
+    def _resolve_prompt(self) -> str:
+        """
+        Return the effective prompt, preferring the base64 form.
+
+        Decoding is strict: a malformed value is reported rather than silently
+        falling back to the plain option, so a broken caller is visible instead
+        of quietly sending the model the wrong question.
+        """
+        if self.prompt_b64:
+            try:
+                return base64.b64decode(self.prompt_b64, validate=True).decode("utf-8")
+            except Exception as exc:
+                raise ValueError(f"prompt_b64 is not valid base64-encoded UTF-8: {exc}") from exc
+
+        if self.prompt:
+            return self.prompt
+
+        raise ValueError("Either 'prompt' or 'prompt_b64' is required.")
+
     def _get_searchinfo(self):
         if hasattr(self, "searchinfo") and self.searchinfo is not None:
             return self.searchinfo
@@ -150,56 +188,79 @@ class LLMDataChatCommand(StreamingCommand):
             "Could not find searchinfo — ensure passauth = true in commands.conf"
         )
 
-    # ── OpenAI-compatible LLM call (works for Ollama + Gemini) ───────────────
+    # ── OpenAI-compatible LLM call via plain requests (Ollama + Gemini) ────────
 
     def _call_llm(self, messages: list[dict], conf: dict) -> str:
         """
-        Send a chat completion request using the openai SDK.
-        Both Ollama and Gemini expose an OpenAI-compatible endpoint,
-        so we use a single code path for both providers.
+        Send a chat completion request using direct HTTP (requests library).
+        Both Ollama and Gemini expose an OpenAI-compatible /chat/completions
+        endpoint, so we use a single code path for both providers.
+
+        This avoids importing the `openai` SDK (and pydantic_core), which
+        contains compiled .so files that fail macOS library-validation when
+        copied from another machine.
         """
         provider_name = self.provider.lower()
 
+        # ── resolve base_url and api_key ──────────────────────────────────────
         if provider_name == "gemini":
-            # Gemini's OpenAI-compatible base URL (must end with /openai/)
-            base_url = conf.get("base_url", "https://generativelanguage.googleapis.com/v1beta/openai/")
-            # Ensure it ends properly for the openai SDK
+            base_url = conf.get("base_url",
+                                "https://generativelanguage.googleapis.com/v1beta/openai/")
             if not base_url.endswith("/"):
                 base_url += "/"
             api_key = conf.get("api_key", "")
         else:
-            # Ollama / any other OpenAI-compatible provider
             base_url = conf.get("base_url", "http://localhost:11434/v1")
-            api_key = conf.get("api_key", "ollama")  # Ollama accepts any non-empty key
+            api_key = conf.get("api_key", "ollama")
             if not api_key or api_key.lower() == "none":
                 api_key = "ollama"
 
         model_name = conf["model_name"]
 
+        # ── build the endpoint URL ────────────────────────────────────────────
+        # base_url may be like "http://host:port/v1" or end with "/"
+        endpoint = base_url.rstrip("/") + "/chat/completions"
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model_name,
+            "messages": messages,
+        }
+
         logger.info(
-            "Calling LLM: provider=%s model=%s base_url=%s messages=%d",
-            provider_name, model_name, base_url, len(messages),
+            "Calling LLM (requests): provider=%s model=%s endpoint=%s messages=%d",
+            provider_name, model_name, endpoint, len(messages),
         )
 
         try:
-            client = openai.OpenAI(base_url=base_url, api_key=api_key)
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
+            resp = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
                 timeout=120,
+                verify=_tls_verify(),
             )
-            answer = response.choices[0].message.content or ""
+            resp.raise_for_status()
+            data = resp.json()
+            answer = data["choices"][0]["message"]["content"] or ""
             logger.info("LLM responded, chars=%d", len(answer))
             return answer
-        except openai.APIConnectionError as exc:
+        except requests.exceptions.ConnectionError as exc:
             raise RuntimeError(
-                f"Cannot reach LLM endpoint ({base_url}). "
+                f"Cannot reach LLM endpoint ({endpoint}). "
                 f"Is the service running? Detail: {exc}"
             ) from exc
-        except openai.AuthenticationError as exc:
+        except requests.exceptions.HTTPError as exc:
             raise RuntimeError(
-                f"Authentication failed for provider '{provider_name}'. "
-                f"Check api_key in agent_config.conf. Detail: {exc}"
+                f"HTTP error from LLM provider '{provider_name}' ({exc.response.status_code}): "
+                f"{exc.response.text[:500]}"
+            ) from exc
+        except (KeyError, IndexError, ValueError) as exc:
+            raise RuntimeError(
+                f"Unexpected response format from LLM: {exc}"
             ) from exc
         except Exception as exc:
             raise RuntimeError(f"LLM call failed: {exc}") from exc
@@ -220,23 +281,45 @@ class LLMDataChatCommand(StreamingCommand):
             "Content-Type": "application/json",
         }
 
-    def _load_history(self) -> tuple[str | None, list[dict]]:
-        """Return (kv_record_key, messages_list) from KV Store."""
-        url = self._get_kvstore_url()
-        query = json.dumps({"session_id": self.session})
-        req_url = f"{url}?query={urllib.parse.quote(query)}"
-        try:
-            r = requests.get(req_url, headers=self._get_headers(), verify=False, timeout=5)
-            r.raise_for_status()
-            records = r.json()
-            if records:
-                rec = records[0]
-                return rec.get("_key"), json.loads(rec.get("messages", "[]"))
-        except Exception as exc:
-            logger.warning("Could not load KV Store history: %s", exc)
+    def _kv_key(self) -> str:
+        """
+        Derive the KV Store ``_key`` from the session id.
 
-        # Fresh session — seed with system prompt
-        return None, [
+        Using the session id as the record key makes writes idempotent: there is
+        no read-then-write window in which a failed read could cause a duplicate
+        record to be inserted and the conversation history to be silently lost.
+        """
+        return re.sub(r"[^A-Za-z0-9_-]", "_", self.session)[:200]
+
+    def _load_history(self) -> tuple[bool, list[dict]]:
+        """
+        Return (loaded_ok, messages_list) from KV Store.
+
+        ``loaded_ok`` distinguishes "this session has no history yet" (True, with
+        a seeded message list) from "the KV Store could not be read" (False), so
+        the caller can decline to overwrite history it was unable to read.
+        """
+        url = f"{self._get_kvstore_url()}/{self._kv_key()}"
+        try:
+            # verify=False: splunkd_uri is loopback with a self-signed cert whose
+            # CN does not match 127.0.0.1. No API key is sent on this call.
+            r = requests.get(url, headers=self._get_headers(), verify=False, timeout=5)
+            if r.status_code == 404:
+                logger.info("No prior history for session '%s' — starting fresh", self.session)
+            else:
+                r.raise_for_status()
+                rec = r.json()
+                return True, json.loads(rec.get("messages", "[]"))
+        except Exception as exc:
+            logger.warning("Could not load KV Store history for session '%s': %s",
+                           self.session, exc)
+            return False, self._seed_messages()
+
+        return True, self._seed_messages()
+
+    @staticmethod
+    def _seed_messages() -> list[dict]:
+        return [
             {
                 "role": "system",
                 "content": (
@@ -248,14 +331,26 @@ class LLMDataChatCommand(StreamingCommand):
             }
         ]
 
-    def _save_history(self, record_key: str | None, messages: list[dict]) -> None:
-        url = self._get_kvstore_url()
-        payload = {"session_id": self.session, "messages": json.dumps(messages)}
+    def _save_history(self, messages: list[dict]) -> None:
+        """Upsert the conversation under a deterministic _key."""
+        base = self._get_kvstore_url()
+        key = self._kv_key()
+        payload = {
+            "_key": key,
+            "session_id": self.session,
+            "messages": json.dumps(messages),
+        }
         try:
-            endpoint = f"{url}/{record_key}" if record_key else url
-            requests.post(endpoint, headers=self._get_headers(), json=payload, verify=False, timeout=5)
+            r = requests.post(f"{base}/{key}", headers=self._get_headers(),
+                              json=payload, verify=False, timeout=5)
+            if r.status_code == 404:
+                # Record does not exist yet — insert it with the explicit _key.
+                r = requests.post(base, headers=self._get_headers(),
+                                  json=payload, verify=False, timeout=5)
+            r.raise_for_status()
         except Exception as exc:
-            logger.warning("Could not save KV Store history: %s", exc)
+            logger.warning("Could not save KV Store history for session '%s': %s",
+                           self.session, exc)
 
     def _format_history_for_display(self, messages: list[dict]) -> str:
         """
@@ -285,6 +380,19 @@ class LLMDataChatCommand(StreamingCommand):
     # ── Main streaming handler ────────────────────────────────────────────────
 
     def stream(self, records):
+        # 0. Resolve the prompt (plain option or base64 transport)
+        try:
+            prompt = self._resolve_prompt()
+        except ValueError as exc:
+            yield {
+                "_time": time.time(),
+                "user_prompt": "",
+                "ai_response": f"❌ {exc}",
+                "analyzed_count": 0,
+                "chat_history": "",
+            }
+            return
+
         # 1. Collect log events from the pipeline
         events: list[dict] = []
         for record in records:
@@ -307,7 +415,7 @@ class LLMDataChatCommand(StreamingCommand):
         except Exception as exc:
             yield {
                 "_time": time.time(),
-                "user_prompt": self.prompt,
+                "user_prompt": prompt,
                 "ai_response": f"❌ Config error: {exc}",
                 "analyzed_count": 0,
                 "chat_history": "",
@@ -315,9 +423,9 @@ class LLMDataChatCommand(StreamingCommand):
             return
 
         # 3. Restore KV Store conversation memory
-        record_key = None
+        history_ok = False
         if self.session:
-            record_key, messages = self._load_history()
+            history_ok, messages = self._load_history()
         else:
             messages = [
                 {
@@ -333,7 +441,7 @@ class LLMDataChatCommand(StreamingCommand):
         user_content = (
             f"### Current Log Data ({len(events)} events):\n"
             f"{json.dumps(events, ensure_ascii=False, indent=2)}\n\n"
-            f"### User Question:\n{self.prompt}"
+            f"### User Question:\n{prompt}"
         )
         messages.append({"role": "user", "content": user_content})
 
@@ -346,19 +454,24 @@ class LLMDataChatCommand(StreamingCommand):
 
         # 7. Persist updated conversation to KV Store (strip bulk log data to save space)
         messages.append({"role": "assistant", "content": answer})
-        if self.session:
+        if self.session and history_ok:
             saved = copy.deepcopy(messages)
             # Replace the full JSON logs in the user turn with a compact note
             saved[-2]["content"] = (
-                f"### User Question:\n{self.prompt}\n"
+                f"### User Question:\n{prompt}\n"
                 "(Note: Current round's raw log data was provided and analyzed.)"
             )
-            self._save_history(record_key, saved)
+            self._save_history(saved)
+        elif self.session:
+            logger.warning(
+                "Skipping history save for session '%s': prior history could not be read, "
+                "so overwriting it would discard earlier turns.", self.session
+            )
 
         # 8. Yield the single result row consumed by the dashboard JS / loadjob
         yield {
             "_time": events[0].get("_time", time.time()) if events else time.time(),
-            "user_prompt": self.prompt,
+            "user_prompt": prompt,
             "ai_response": answer,
             "analyzed_count": len(events),
             "chat_history": history_text,

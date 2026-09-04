@@ -1,42 +1,204 @@
 <form version="1.1" theme="dark">
   <label>Autonomous AI Agent (Zero-Shot Explorer)</label>
-  <description>The AI Agent will autonomously explore your Splunk environment, write its own SPL queries, analyze the results, and decide the next steps until it solves your problem.</description>
+  <description>The AI Agent autonomously explores your Splunk environment, writes its own SPL queries via MCP, analyzes results, and decides the next steps until it solves your problem.</description>
+
+  <!-- Default initialization: guarantees all tokens are satisfied at launch -->
+  <init>
+    <set token="show_model_input">true</set>
+    <set token="selected_llm_clause">provider="ollama"</set>
+    <set token="selected_model">model="gemma4"</set>
+  </init>
+
   <fieldset submitButton="true" autoRun="false">
-    <input type="text" token="user_prompt" id="agent_prompt_input">
-      <label>Agent Task Prompt</label>
+    <!-- 1. LLM Source Selector -->
+    <input type="dropdown" token="selected_llm_source" id="llm_source_dropdown" searchWhenChanged="false">
+      <label>1️⃣ LLM Source / Provider</label>
+      <choice value="ollama">Ollama (Local LLM)</choice>
+      <choice value="gemini_flash_lite">AI Toolkit: gemini_flash_lite</choice>
+      <choice value="spl_hosted_oss_120b">AI Toolkit: spl_hosted_oss_120b</choice>
+      <choice value="gemini">Gemini (Direct config)</choice>
+      <default>ollama</default>
+      <initialValue>ollama</initialValue>
+      <change>
+        <condition value="ollama">
+          <set token="show_model_input">true</set>
+          <set token="selected_llm_clause">provider="ollama"</set>
+          <set token="selected_model">model="$form.selected_model$"</set>
+        </condition>
+        <condition value="gemini">
+          <unset token="show_model_input"></unset>
+          <set token="selected_llm_clause">provider="gemini"</set>
+          <set token="selected_model"></set>
+          <set token="form.selected_model"></set>
+        </condition>
+        <condition>
+          <unset token="show_model_input"></unset>
+          <set token="selected_llm_clause">llm_connection="$value$"</set>
+          <set token="selected_model"></set>
+          <set token="form.selected_model"></set>
+        </condition>
+      </change>
+    </input>
+
+    <!-- 2. Model Input (Visible only when Ollama is selected) -->
+    <input type="text" token="selected_model" id="model_input" searchWhenChanged="false" depends="$show_model_input$">
+      <label>2️⃣ Ollama Model</label>
+      <default>gemma4</default>
+      <initialValue>gemma4</initialValue>
+      <prefix>model="</prefix>
+      <suffix>"</suffix>
+    </input>
+
+    <!-- 3. MCP Connection selector -->
+    <input type="dropdown" token="selected_mcp" id="mcp_conn_dropdown" searchWhenChanged="false">
+      <label>3️⃣ MCP Connection</label>
+      <choice value="local_mcp">local_mcp (Local Tools in bin/tools.py)</choice>
+      <choice value="splunkeszou_mcp">splunkeszou_mcp (Remote Splunk MCP Server)</choice>
+      <choice value="all">all (Local + All Remote MCP Tools)</choice>
+      <default>local_mcp</default>
+      <initialValue>local_mcp</initialValue>
+      <prefix>mcp_connection="</prefix>
+      <suffix>"</suffix>
+    </input>
+
+    <!-- 4. Prompt input -->
+    <input type="text" token="user_prompt" id="agent_prompt_input" searchWhenChanged="false">
+      <label>4️⃣ Agent Task Prompt</label>
       <default>Check if there are any firewall logs in our environment. If yes, find out which source IP has the most 'deny' actions today.</default>
+      <initialValue>Check if there are any firewall logs in our environment. If yes, find out which source IP has the most 'deny' actions today.</initialValue>
     </input>
   </fieldset>
+
+  <!-- Global & Component Styling -->
   <row depends="$hidden$">
     <panel>
       <html>
-        <style>
-          /* Geek style input box */
-          #agent_prompt_input { width: 800px !important; }
-          #agent_prompt_input input {
+        <style><![CDATA[
+          /* 🚀 1. Base Dark Theme Styling */
+          .dashboard-body, body, .app-body { background-color: #0f172a !important; color: #cbd5e1 !important; }
+          .dashboard-panel { background-color: #0f172a !important; border: none !important; }
+          
+          /* 📏 2. Form Controls Alignment & Uniform Height */
+          .fieldset .input {
+            vertical-align: top !important;
+            margin-right: 16px !important;
+          }
+          .fieldset .input label {
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            color: #94a3b8 !important;
+            margin-bottom: 6px !important;
+            white-space: nowrap !important;
+          }
+          
+          #llm_source_dropdown, #mcp_conn_dropdown { width: 220px !important; }
+          #model_input { width: 160px !important; }
+          #agent_prompt_input { min-width: 480px !important; flex-grow: 1 !important; }
+          
+          /* Input Box Styling */
+          #agent_prompt_input input, #model_input input {
             font-family: 'SFMono-Regular', Consolas, monospace !important;
             color: #22d3ee !important;
-            font-size: 15px !important;
-            padding: 10px !important;
-            background-color: #0f172a !important;
+            font-size: 14px !important;
+            height: 36px !important;
+            box-sizing: border-box !important;
+            padding: 6px 12px !important;
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 6px !important;
           }
-          /* Streaming table wrap fix: Allows long LLM thoughts to wrap neatly */
-          #agent_stream_table table td {
-            white-space: pre-wrap !important;
-            word-wrap: break-word !important;
+          
+          .splunk-dropdown .select2-choice {
+            height: 36px !important;
+            line-height: 34px !important;
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 6px !important;
+            color: #f8fafc !important;
+          }
+
+          /* 🏆 3. High-Contrast Dark Table Styling */
+          #agent_stream_table .table,
+          #agent_stream_table table,
+          #agent_stream_table .table-chrome {
+            background-color: #0f172a !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+            width: 100% !important;
+          }
+
+          /* Table Header */
+          #agent_stream_table th,
+          #agent_stream_table .table-chrome th {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            font-weight: 700 !important;
+            font-size: 13px !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+            border-bottom: 2px solid #334155 !important;
+            padding: 12px 16px !important;
+            white-space: nowrap !important;
+          }
+
+          /* Normal / Unselected Rows (High Contrast Slate Background) */
+          #agent_stream_table td,
+          #agent_stream_table .table-chrome td {
+            background-color: #0f172a !important;
+            color: #f1f5f9 !important;
+            border-bottom: 1px solid #1e293b !important;
             font-size: 14px !important;
             line-height: 1.6 !important;
+            vertical-align: top !important;
+            padding: 12px 16px !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
           }
-        </style>
+
+          /* Zebra Striping */
+          #agent_stream_table tr:nth-child(even) td,
+          #agent_stream_table .table-chrome tr:nth-child(even) td {
+            background-color: #162032 !important;
+          }
+
+          /* Hover / Selected Row State */
+          #agent_stream_table tr:hover td,
+          #agent_stream_table .table-chrome tr:hover td,
+          #agent_stream_table tr.selected td {
+            background-color: #24344d !important;
+            color: #ffffff !important;
+          }
+
+          /* Columns Layout */
+          #agent_stream_table td:nth-child(1) {
+            font-family: 'SFMono-Regular', Consolas, monospace !important;
+            color: #94a3b8 !important;
+            font-size: 13px !important;
+            white-space: nowrap !important;
+            width: 90px !important;
+          }
+          #agent_stream_table td:nth-child(2) {
+            font-weight: 700 !important;
+            color: #38bdf8 !important;
+            text-align: center !important;
+            width: 60px !important;
+          }
+          #agent_stream_table td:nth-child(3) {
+            white-space: nowrap !important;
+            width: 180px !important;
+          }
+        ]]></style>
       </html>
     </panel>
   </row>
+
+  <!-- Live Stream Table Panel -->
   <row>
     <panel>
       <title>Agent's Chain of Thought (Live Stream)</title>
       <table id="agent_stream_table">
         <search>
-          <query>| aiagentx prompt="$user_prompt$"
+          <query>| aiagentx prompt="$user_prompt$" $selected_llm_clause$ $selected_model$ $selected_mcp$
 | eval Time = strftime(_time, "%H:%M:%S")
 | table Time step type content
 | rename step as Step, type as "Agent Action", content as Details</query>
@@ -44,21 +206,26 @@
           <latest>now</latest>
           <sampleRatio>1</sampleRatio>
         </search>
-        <option name="count">20</option>
+        <option name="count">50</option>
         <option name="dataOverlayMode">none</option>
         <option name="drilldown">none</option>
         <option name="rowNumbers">false</option>
         <option name="wrap">true</option>
         <format type="color" field="Agent Action">
           <colorPalette type="map">{"🔄 Thinking...": "#475569",
+             "⚙️ MCP Config": "#0284c7",
              "🤔 Agent Reasoning": "#3b82f6",
              "⚙️ Executing Query": "#f59e0b",
              "👀 Observation": "#10b981",
              "✅ Final Report": "#8b5cf6",
+             "⏳ Working...": "#64748b",
              "⚠️ Forced Termination": "#ef4444",
+             "❌ Error": "#ef4444",
+             "❌ Timeout": "#ef4444",
              "❌ Parsing Failed": "#ef4444"}</colorPalette>
         </format>
       </table>
     </panel>
   </row>
 </form>
+

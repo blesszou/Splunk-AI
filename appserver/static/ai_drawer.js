@@ -50,6 +50,9 @@ require([
     // ----------------------------------------------------------------
     var defaultTokens = mvc.Components.getInstance("default");
 
+    // Allow-list for the provider dropdown; anything else falls back to ollama.
+    var PROVIDERS = ["ollama", "gemini"];
+
     function syncStatus() {
         var sid = defaultTokens.get("base_sid");
         var $btn = $("#ai-drawer-run-btn");
@@ -136,13 +139,22 @@ require([
             </div>
         `);
 
-        // Sanitize the prompt for inline SPL (no double-quotes, no $ signs)
-        var safePrompt = promptText.replace(/"/g, "'").replace(/\$/g, "");
+        // The prompt is free-form user text going into an SPL string literal.
+        // Rather than escaping it, transport it as base64 so that quotes,
+        // backslashes, newlines and '$' cannot occur in the generated SPL at
+        // all. llmchat decodes prompt_b64 back to UTF-8. This also stops the
+        // prompt from being mangled on its way to the model.
+        var promptB64 = toBase64Utf8(promptText);
 
-        var provider    = $("#ai-drawer-provider").val() || "ollama";
+        // Both remaining interpolations are constrained to known-safe values
+        // instead of being trusted because of where they came from.
+        var provider   = PROVIDERS.indexOf($("#ai-drawer-provider").val()) >= 0
+                            ? $("#ai-drawer-provider").val() : "ollama";
+        var safeSession = String(sessionTok).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 200);
+        var safeSid     = String(baseSid).replace(/[^A-Za-z0-9._-]/g, "");
 
-        var spl = '| loadjob ' + baseSid +
-                  ' | llmchat session="' + sessionTok + '" prompt="' + safePrompt + '" provider="' + provider + '"' +
+        var spl = '| loadjob ' + safeSid +
+                  ' | llmchat session="' + safeSession + '" prompt_b64="' + promptB64 + '" provider="' + provider + '"' +
                   ' | eval chat_history=coalesce(chat_history, "")' +
                   ' | eval ai_response=if(isnull(ai_response), "(no response)", ai_response)';
 
@@ -220,6 +232,16 @@ require([
     // ----------------------------------------------------------------
     function escHtml(str) {
         return $("<div>").text(String(str)).html();
+    }
+
+    // Base64 of the UTF-8 bytes. btoa() alone throws on any character above
+    // U+00FF, which a prompt containing CJK text or emoji will always hit.
+    function toBase64Utf8(str) {
+        var utf8 = encodeURIComponent(String(str)).replace(
+            /%([0-9A-F]{2})/g,
+            function(_, hex) { return String.fromCharCode(parseInt(hex, 16)); }
+        );
+        return btoa(utf8);
     }
 
     function makeRow(type, label, body) {

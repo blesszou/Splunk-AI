@@ -1,0 +1,25 @@
+# Third-party runtime dependencies, installed into bin/lib by build.sh.
+#
+# Pinned to the versions this app was developed against. Transitive
+# dependencies (langgraph, openai, tiktoken, starlette, uvicorn, ...) are
+# resolved by pip and deliberately not listed here.
+#
+# The Splunk SDK itself is NOT installed from an index — it is vendored in
+# bin/splunklib and copied into place by build.sh. See that script for why.
+
+# --- direct use in our own search commands ---
+requests==2.34.2
+
+# --- required by splunklib.ai (see splunk_sdk dist-info Requires-Dist) ---
+httpx==0.28.1
+langchain==1.3.1
+mcp==1.27.1
+pydantic==2.13.4
+
+# --- model providers exposed by splunklib.ai ---
+# ai_agent.py imports GoogleModel, OpenAIModel and AnthropicModel, so all
+# three provider backends must be present.
+langchain-openai==1.2.2
+langchain-google-genai==4.2.2
+langchain-anthropic>=1.4.3
+google-auth==2.53.0
